@@ -1,0 +1,58 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches
+.pytest_cache/
+.eslintcache
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Node / frontend dependencies and builds
+node_modules/
+dist/
+dist-ssr/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE and OS files
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.antigravity/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.bak
+*.tmp
+Thumbs.db
+
+# Dynamic simulation outputs
+outputs/*
+!outputs/.gitkeep
+
+# Dynamically generated run-specific data (but keep static network v1 config)
+data/generated/profiles/
+data/generated/seird_results.csv
+data/generated/mobility_graph.json
+data/generated/mc_seeds.json
+backend/data/generated/
+
+# Agent and Architecture documentation
+AGENTS.md
+SESSION_LOG.md
+
+

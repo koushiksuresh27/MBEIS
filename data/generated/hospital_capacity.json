@@ -1,0 +1,92 @@
+[
+    {
+        "node_id": "THRISSUR",
+        "total_beds": 1000,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "KOCHI",
+        "total_beds": 3428,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "THIRUVANANTHAPURAM",
+        "total_beds": 2857,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "CHENNAI",
+        "total_beds": 11789,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "BENGALURU",
+        "total_beds": 13059,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "MUMBAI",
+        "total_beds": 20195,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "DELHI",
+        "total_beds": 50000,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "HYDERABAD",
+        "total_beds": 11052,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "PUNE",
+        "total_beds": 7219,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "KOLKATA",
+        "total_beds": 12836,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "AHMEDABAD",
+        "total_beds": 8109,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "JAIPUR",
+        "total_beds": 3500,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "LUCKNOW",
+        "total_beds": 1900,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "NAGPUR",
+        "total_beds": 2926,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    },
+    {
+        "node_id": "COIMBATORE",
+        "total_beds": 2210,
+        "overwhelm_threshold_pct": 0.3,
+        "data_quality": "estimated"
+    }
+]

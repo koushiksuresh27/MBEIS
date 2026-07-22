@@ -1,0 +1,10 @@
+numpy
+pandas
+scipy
+networkx
+matplotlib
+pytest
+supabase
+python-dotenv
+fastapi
+uvicorn

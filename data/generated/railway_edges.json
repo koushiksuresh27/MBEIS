@@ -1,0 +1,152 @@
+[
+    {
+        "source": "THRISSUR",
+        "target": "KOCHI",
+        "weight": 40,
+        "mode": "rail"
+    },
+    {
+        "source": "THRISSUR",
+        "target": "THIRUVANANTHAPURAM",
+        "weight": 25,
+        "mode": "rail"
+    },
+    {
+        "source": "THRISSUR",
+        "target": "COIMBATORE",
+        "weight": 20,
+        "mode": "rail"
+    },
+    {
+        "source": "KOCHI",
+        "target": "THIRUVANANTHAPURAM",
+        "weight": 35,
+        "mode": "rail"
+    },
+    {
+        "source": "KOCHI",
+        "target": "COIMBATORE",
+        "weight": 15,
+        "mode": "rail"
+    },
+    {
+        "source": "COIMBATORE",
+        "target": "CHENNAI",
+        "weight": 45,
+        "mode": "rail"
+    },
+    {
+        "source": "COIMBATORE",
+        "target": "BENGALURU",
+        "weight": 30,
+        "mode": "rail"
+    },
+    {
+        "source": "CHENNAI",
+        "target": "BENGALURU",
+        "weight": 60,
+        "mode": "rail"
+    },
+    {
+        "source": "CHENNAI",
+        "target": "HYDERABAD",
+        "weight": 40,
+        "mode": "rail"
+    },
+    {
+        "source": "BENGALURU",
+        "target": "HYDERABAD",
+        "weight": 35,
+        "mode": "rail"
+    },
+    {
+        "source": "BENGALURU",
+        "target": "PUNE",
+        "weight": 25,
+        "mode": "rail"
+    },
+    {
+        "source": "PUNE",
+        "target": "MUMBAI",
+        "weight": 80,
+        "mode": "rail"
+    },
+    {
+        "source": "MUMBAI",
+        "target": "AHMEDABAD",
+        "weight": 55,
+        "mode": "rail"
+    },
+    {
+        "source": "MUMBAI",
+        "target": "NAGPUR",
+        "weight": 30,
+        "mode": "rail"
+    },
+    {
+        "source": "MUMBAI",
+        "target": "HYDERABAD",
+        "weight": 25,
+        "mode": "rail"
+    },
+    {
+        "source": "AHMEDABAD",
+        "target": "JAIPUR",
+        "weight": 35,
+        "mode": "rail"
+    },
+    {
+        "source": "NAGPUR",
+        "target": "HYDERABAD",
+        "weight": 20,
+        "mode": "rail"
+    },
+    {
+        "source": "NAGPUR",
+        "target": "DELHI",
+        "weight": 45,
+        "mode": "rail"
+    },
+    {
+        "source": "JAIPUR",
+        "target": "DELHI",
+        "weight": 65,
+        "mode": "rail"
+    },
+    {
+        "source": "DELHI",
+        "target": "LUCKNOW",
+        "weight": 50,
+        "mode": "rail"
+    },
+    {
+        "source": "DELHI",
+        "target": "KOLKATA",
+        "weight": 40,
+        "mode": "rail"
+    },
+    {
+        "source": "DELHI",
+        "target": "MUMBAI",
+        "weight": 50,
+        "mode": "rail"
+    },
+    {
+        "source": "LUCKNOW",
+        "target": "KOLKATA",
+        "weight": 25,
+        "mode": "rail"
+    },
+    {
+        "source": "KOLKATA",
+        "target": "NAGPUR",
+        "weight": 20,
+        "mode": "rail"
+    },
+    {
+        "source": "KOLKATA",
+        "target": "CHENNAI",
+        "weight": 15,
+        "mode": "rail"
+    }
+]
