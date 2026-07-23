@@ -4,8 +4,12 @@ import math
 ICU_RATE = 0.025
 NON_ICU_RATE = 0.205
 ISOLATION_RATE = 0.300
-# 100 active cases = 0.322 metric tonnes per day
-OXYGEN_MT_RATE = 0.00322
+
+# Oxygen flow rate constants [G1]
+ICU_O2_FLOW_LPM = 24        # litres per minute, per ICU patient
+NON_ICU_O2_FLOW_LPM = 10    # litres per minute, per non-ICU oxygen patient
+LPM_TO_MT_PER_DAY = 0.002058  # conversion factor
+NATIONAL_O2_CEILING_MT = 17000  # MT/day, fixed [G1] constant
 
 def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profile_version):
     """
@@ -46,7 +50,9 @@ def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profi
         icu = math.ceil(peak_active * ICU_RATE)
         non_icu = math.ceil(peak_active * NON_ICU_RATE)
         isolation = math.ceil(peak_active * ISOLATION_RATE)
-        oxygen_mt = peak_active * OXYGEN_MT_RATE
+        
+        # O2 demand = (ICU patients * 24 LPM + non-ICU patients * 10 LPM) * conversion
+        oxygen_mt = (icu * ICU_O2_FLOW_LPM + non_icu * NON_ICU_O2_FLOW_LPM) * LPM_TO_MT_PER_DAY
         
         proj = {
             "scenario_id": scenario_id,
@@ -57,8 +63,8 @@ def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profi
             "projected_icu_beds_needed": icu,
             "projected_non_icu_beds_needed": non_icu,
             "projected_isolation_beds_needed": isolation,
-            "projected_oxygen_mt_per_day": round(oxygen_mt, 3)
-            # capacity_ceiling_oxygen_mt_per_day is omitted to use DB default 17000
+            "projected_oxygen_mt_per_day": round(oxygen_mt, 3),
+            "capacity_ceiling_oxygen_mt_per_day": NATIONAL_O2_CEILING_MT
         }
         projections.append(proj)
         

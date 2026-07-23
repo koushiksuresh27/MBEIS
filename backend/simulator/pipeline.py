@@ -1,185 +1,111 @@
-import json
-import os
-import sys
-import pandas as pd
-import networkx as nx
-import copy
-import shutil
-from datetime import datetime
-
-# Ensure correct path resolution
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from backend.simulator.monte_carlo import run_monte_carlo
+from backend.simulator.monte_carlo import run_monte_carlo, apply_intervention
 from backend.simulator.lockdown_optimizer import rank_lockdown_targets
-from backend.simulator.healthcare_capacity import load_capacity, check_overwhelmed
+from backend.simulator.mobility_graph import build_graph
+import networkx as nx
 
-def get_data_dir():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(os.path.dirname(current_dir), "data", "generated")
-
-def get_outputs_dir(event_id):
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    outputs_dir = os.path.join(os.path.dirname(current_dir), "outputs", event_id[:8])
-    os.makedirs(outputs_dir, exist_ok=True)
-    return outputs_dir
-
-def run_phase3(event, profile, origin_node_id, n_runs=100, days=90):
-    version = datetime.now().strftime("%Y%m%d%H%M%S")
-    out_dir = get_outputs_dir(event.get("event_id", "UNKNOWN_"))
+def run_simulation_pipeline(
+    scenario_id: str,
+    pathogen_profile: dict,
+    origin_city: str,
+    intervention_types: list[str],
+    n_runs: int = 100,
+    days: int = 90
+):
+    graph = build_graph()
     
-    # 1. Load mobility graph
-    with open(os.path.join(get_data_dir(), "mobility_graph.json"), 'r') as f:
-        graph_data = json.load(f)
-    G = nx.node_link_graph(graph_data)
+    output = {
+        "seird_results": [],
+        "city_status": [],
+        "lockdown_recommendations": [],
+        "raw_bands": {}
+    }
     
-    # 2. Check signal_type
-    low_fidelity = False
-    if event.get("signal_type") == "watch_event":
-        n_runs = 20
-        low_fidelity = True
+    for intervention_type in intervention_types:
+        modified_graph = apply_intervention(graph, intervention_type)
+        res = run_monte_carlo(pathogen_profile, modified_graph, origin_city, n_runs=n_runs, days=days)
         
-    # 3. Run Monte Carlo (No Lockdown)
-    res_no_lockdown = run_monte_carlo(profile, G, origin_node_id, n_runs=n_runs, days=days)
-    
-    # 4. Check healthcare capacity
-    capacity_dict = load_capacity()
-    city_status = {}
-    for nid, bands in res_no_lockdown["confidence_bands"].items():
-        peak_day = res_no_lockdown["peak_infection_day"].get(nid, 0)
-        hc_res = check_overwhelmed(nid, bands["P50"], capacity_dict)
-        city_status[nid] = {
-            "overwhelmed": hc_res["overwhelmed"],
-            "days_overwhelmed": hc_res["days_overwhelmed"],
-            "first_overwhelm_day": hc_res["first_overwhelm_day"],
-            "peak_day": peak_day
-        }
+        confidence_bands = res["confidence_bands"]
+        peak_infection_day = res["peak_infection_day"]
         
-    # 5. Lockdown optimizer
-    ranked_targets = []
-    if not low_fidelity:
-        ranked_targets = rank_lockdown_targets(
-            G, 
-            res_no_lockdown["confidence_bands"], 
-            res_no_lockdown["peak_infection_day"], 
-            top_n=15
-        )
+        output["raw_bands"][intervention_type] = confidence_bands
         
-        # Scenario 2: Partial Lockdown (remove top 5 edges)
-        G_partial = copy.deepcopy(G)
-        for t in ranked_targets[:5]:
-            if G_partial.has_edge(t["source"], t["target"]):
-                G_partial.remove_edge(t["source"], t["target"])
-        res_partial = run_monte_carlo(profile, G_partial, origin_node_id, n_runs=20, days=days)
-        
-        # Scenario 3: Full Lockdown (remove top 15 edges)
-        G_full = copy.deepcopy(G)
-        for t in ranked_targets[:15]:
-            if G_full.has_edge(t["source"], t["target"]):
-                G_full.remove_edge(t["source"], t["target"])
-        res_full = run_monte_carlo(profile, G_full, origin_node_id, n_runs=20, days=days)
-    else:
-        res_partial = res_no_lockdown
-        res_full = res_no_lockdown
-        
-    # 6. Write outputs
-    output_files = {}
-    
-    cb_path = os.path.join(out_dir, f"confidence_bands_{version}.json")
-    with open(cb_path, 'w') as f:
-        # Save only the core bands for JSON dump simplicity if desired, but we'll save the whole structure
-        json.dump(res_no_lockdown["confidence_bands"], f, indent=4)
-    output_files["confidence_bands"] = cb_path
-        
-    records = []
-    def process_res(scenario_name, res_dict):
-        for nid, bands in res_dict["confidence_bands"].items():
-            for day, val in enumerate(bands["P50"]):
-                records.append({
-                    "scenario": scenario_name,
-                    "node_id": nid,
+        # National Aggregation for seird_results
+        for day in range(days + 1):
+            inf_p10 = sum(confidence_bands[city]["P10"][day] for city in confidence_bands)
+            inf_p50 = sum(confidence_bands[city]["P50"][day] for city in confidence_bands)
+            inf_p90 = sum(confidence_bands[city]["P90"][day] for city in confidence_bands)
+            
+            # Using D_P50 as approximation for p10 and p90 since monte_carlo only returns D_P50
+            deaths = sum(confidence_bands[city]["D_P50"][day] for city in confidence_bands)
+            
+            output["seird_results"].append({
+                "scenario_id": scenario_id,
+                "pathogen_profile_version": pathogen_profile["version"],
+                "intervention_type": intervention_type,
+                "day": day,
+                "infected_p10": float(inf_p10),
+                "infected_p50": float(inf_p50),
+                "infected_p90": float(inf_p90),
+                "deaths_p10": float(deaths),
+                "deaths_p50": float(deaths),
+                "deaths_p90": float(deaths),
+                "trajectory_sample": None
+            })
+            
+            # city_status rows
+            for city, bands in confidence_bands.items():
+                output["city_status"].append({
+                    "scenario_id": scenario_id,
+                    "pathogen_profile_version": pathogen_profile["version"],
+                    "intervention_type": intervention_type,
+                    "city": city,
                     "day": day,
-                    "S": bands["S_P50"][day],
-                    "E": bands["E_P50"][day],
-                    "I": val,
-                    "R": bands["R_P50"][day],
-                    "D": bands["D_P50"][day],
-                    "I_P10": bands["P10"][day],
-                    "I_P90": bands["P90"][day],
+                    "active_cases_p50": float(bands["P50"][day]),
+                    "active_cases_p10": float(bands["P10"][day]),
+                    "active_cases_p90": float(bands["P90"][day]),
                 })
                 
-    process_res("no_lockdown", res_no_lockdown)
-    if not low_fidelity:
-        process_res("partial_lockdown", res_partial)
-        process_res("full_lockdown", res_full)
+        # Lockdown Recommendations
+        num_edges = modified_graph.number_of_edges()
+        edge_ranks = rank_lockdown_targets(modified_graph, confidence_bands, peak_infection_day, top_n=num_edges)
         
-    df = pd.DataFrame(records)
-    csv_path = os.path.join(out_dir, f"seird_results_{version}.csv")
-    df.to_csv(csv_path, index=False)
-    output_files["seird_results"] = csv_path
-    
-    cs_path = os.path.join(out_dir, f"city_status_{version}.json")
-    with open(cs_path, 'w') as f:
-        json.dump(city_status, f, indent=4)
-    output_files["city_status"] = cs_path
-    
-    lr_path = os.path.join(out_dir, f"lockdown_recommendations_{version}.json")
-    with open(lr_path, 'w') as f:
-        json.dump(ranked_targets, f, indent=4)
-    output_files["lockdown_recommendations"] = lr_path
-    
-    mc_src = os.path.join(get_data_dir(), "mc_seeds.json")
-    mc_path = os.path.join(out_dir, f"mc_seeds_{version}.json")
-    if os.path.exists(mc_src):
-        shutil.copy(mc_src, mc_path)
-    output_files["mc_seeds"] = mc_path
-    
-    return output_files, res_no_lockdown, city_status, ranked_targets
-
-if __name__ == "__main__":
-    from backend.profiler.pathogen_profiler import profile_pathogen
-    
-    # 1. Load the event
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    sample_file = os.path.join(os.path.dirname(current_dir), "data", "generated", "sample_phase1_event.json")
-    with open(sample_file, 'r') as f:
-        event = json.load(f)
-        
-    # 2. Run Phase 2 to get the profile
-    profile = profile_pathogen(event)
-    
-    # 3. Run Phase 3
-    print("Running end-to-end Phase 3 Orchestrator...")
-    origin = event.get("origin_node_id", "THRISSUR")
-    output_files, res_no_lockdown, city_status, ranked_targets = run_phase3(event, profile, origin, n_runs=50, days=90)
-    
-    # 4. Print summary table
-    print("\n--- Summary Table ---")
-    
-    peak_infected = []
-    for nid, bands in res_no_lockdown["confidence_bands"].items():
-        peak_i = max(bands["P50"])
-        peak_infected.append((nid, peak_i))
-    peak_infected.sort(key=lambda x: x[1], reverse=True)
-    
-    print("\nTop 5 Cities by Peak Infected (P50):")
-    for nid, val in peak_infected[:5]:
-        print(f"  {nid}: {val:.2f} infections")
-        
-    print("\nOverwhelmed Cities:")
-    found_overwhelmed = False
-    for nid, status in city_status.items():
-        if status["overwhelmed"]:
-            found_overwhelmed = True
-            print(f"  {nid}: overwhelmed starting on Day {status['first_overwhelm_day']} (for {status['days_overwhelmed']} days)")
-    if not found_overwhelmed:
-        print("  None")
+        city_max_betweenness = {node: 0.0 for node in modified_graph.nodes()}
+        for edge in edge_ranks:
+            u = edge["source"]
+            v = edge["target"]
+            betw = float(edge["betweenness"])
+            city_max_betweenness[u] = max(city_max_betweenness[u], betw)
+            city_max_betweenness[v] = max(city_max_betweenness[v], betw)
             
-    if ranked_targets:
-        print("\nTop 5 Lockdown Recommendations:")
-        for i, t in enumerate(ranked_targets[:5]):
-            print(f"  {i+1}. {t['source_name']} <-> {t['target_name']} | Score: {t['combined_score']:.4f}")
+        try:
+            eigenvector_centrality = nx.eigenvector_centrality_numpy(modified_graph, weight='weight')
+        except Exception:
+            # Fallback if numpy eigenvector centrality fails (e.g. empty graph or not connected)
+            eigenvector_centrality = nx.degree_centrality(modified_graph)
             
-    print("\n--- Output Files Generated ---")
-    for k, v in output_files.items():
-        print(f"  {k}: {os.path.basename(v)}")
+        city_scores = []
+        for city in modified_graph.nodes():
+            b_score = city_max_betweenness.get(city, 0.0)
+            e_score = float(eigenvector_centrality.get(city, 0.0))
+            combined_score = 0.6 * b_score + 0.4 * e_score
+            city_scores.append({
+                "city": city,
+                "betweenness_score": b_score,
+                "eigenvector_score": e_score,
+                "combined_score": combined_score
+            })
+            
+        city_scores.sort(key=lambda x: x["combined_score"], reverse=True)
+        
+        for rank, score_data in enumerate(city_scores, start=1):
+            output["lockdown_recommendations"].append({
+                "scenario_id": scenario_id,
+                "pathogen_profile_version": pathogen_profile["version"],
+                "intervention_type": intervention_type,
+                "city": score_data["city"],
+                "priority_rank": rank,
+                "betweenness_score": score_data["betweenness_score"],
+                "eigenvector_score": score_data["eigenvector_score"]
+            })
+            
+    return output
