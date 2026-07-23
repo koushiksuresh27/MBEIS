@@ -2,6 +2,7 @@ import numpy as np
 import json
 import os
 import multiprocessing as mp
+import scipy.stats as stats
 from backend.simulator.seird_model import run_seird_node
 import sys
 
@@ -10,34 +11,11 @@ def get_data_dir():
     return os.path.join(os.path.dirname(os.path.dirname(current_dir)), "data", "generated")
 
 def run_single_simulation(args):
-    seed, profile, nodes, graph_dict, origin_node_id, days = args
-    np.random.seed(seed)
+    sampled_R0, sampled_inc, sampled_cfr, nodes, graph_dict, origin_node_id, days = args
     
-    conf = profile.get("data_confidence", "MEDIUM")
-    widen = 0.0
-    if conf == "LOW": widen = 0.20
-    elif conf == "MEDIUM": widen = 0.10
-    
-    base_t = profile["base_template"]
-    
-    r0_est = profile["R0_estimate"]
-    r0_lower = base_t["R0"]["lower_95"] * profile["seasonal_multiplier"]
-    r0_upper = base_t["R0"]["upper_95"] * profile["seasonal_multiplier"]
-    r0_lower *= (1.0 - widen)
-    r0_upper *= (1.0 + widen)
-    r0_std = (r0_upper - r0_lower) / 4.0
-    sampled_R0 = max(0.1, np.random.normal(r0_est, r0_std))
-    
-    inc_min = base_t["incubation_days"]["min"]
-    inc_max = base_t["incubation_days"]["max"]
-    sampled_inc = np.random.uniform(inc_min, inc_max)
-    
-    cfr_est = base_t["mortality_rate"]["estimate"]
-    cfr_std = (base_t["mortality_rate"]["upper_95"] - base_t["mortality_rate"]["lower_95"]) / 4.0
-    sampled_cfr = max(0.0, np.random.normal(cfr_est, cfr_std))
-    
-    duration = base_t["clinical_duration_days"]
-    contagiousness = base_t["contagiousness_factor"]
+    # Defaults since flat profile doesn't include these
+    duration = 10
+    contagiousness = 1.0
     
     results = {}
     
@@ -73,15 +51,47 @@ def run_monte_carlo(profile, graph, origin_node_id, n_runs=100, days=90):
     with open(nodes_file, 'r') as f:
         nodes = json.load(f)
         
-    seeds = [42] + [np.random.randint(10000, 99999) for _ in range(n_runs - 1)]
-    with open(os.path.join(get_data_dir(), "mc_seeds.json"), 'w') as f:
-        json.dump(seeds, f)
-        
     import networkx as nx
     G = nx.node_link_graph(graph) if isinstance(graph, dict) else graph
     graph_dict = dict(G.adjacency())
     
-    args_list = [(s, profile, nodes, graph_dict, origin_node_id, days) for s in seeds]
+    sampler = stats.qmc.Halton(d=3, scramble=False)
+    n_base = (n_runs + 1) // 2
+    base_samples = sampler.random(n=n_base)
+    
+    samples = []
+    for u in base_samples:
+        samples.append(u)
+        if len(samples) < n_runs:
+            samples.append(1.0 - u)
+            
+    samples = np.array(samples)
+    
+    def get_triang_params(low, most_likely, high):
+        if high == low:
+            return 0.5, low, 1e-9
+        c = (most_likely - low) / (high - low)
+        c = max(0.0, min(1.0, c))
+        return c, low, high - low
+        
+    r0_c, r0_loc, r0_scale = get_triang_params(
+        profile["r0_low"], profile["r0_most_likely"], profile["r0_high"]
+    )
+    inc_c, inc_loc, inc_scale = get_triang_params(
+        profile["incubation_days_low"], profile["incubation_days_most_likely"], profile["incubation_days_high"]
+    )
+    cfr_c, cfr_loc, cfr_scale = get_triang_params(
+        profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"]
+    )
+    
+    r0_samples = stats.triang.ppf(samples[:, 0], c=r0_c, loc=r0_loc, scale=r0_scale)
+    inc_samples = stats.triang.ppf(samples[:, 1], c=inc_c, loc=inc_loc, scale=inc_scale)
+    cfr_samples = stats.triang.ppf(samples[:, 2], c=cfr_c, loc=cfr_loc, scale=cfr_scale)
+    
+    args_list = [
+        (r0_samples[i], inc_samples[i], cfr_samples[i], nodes, graph_dict, origin_node_id, days)
+        for i in range(n_runs)
+    ]
     
     n_workers = min(mp.cpu_count(), 8)
     with mp.Pool(n_workers) as pool:
