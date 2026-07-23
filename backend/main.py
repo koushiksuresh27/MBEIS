@@ -53,10 +53,7 @@ def simulate(payload: SimulateRequest):
     from backend.simulator.resource_calculator import calculate_resource_projections
     from backend.simulator.simulator_io import (
         get_latest_pathogen_profile,
-        write_seird_results,
-        write_city_status,
-        write_lockdown_recommendations,
-        write_resource_projections
+        write_all_results
     )
     
     scenario_id = payload.scenario_id
@@ -76,18 +73,13 @@ def simulate(payload: SimulateRequest):
         days=90
     )
     
-    # 3. Write results back to Supabase
-    write_seird_results(output["seird_results"])
-    write_city_status(output["city_status"])
-    write_lockdown_recommendations(output["lockdown_recommendations"])
-    
-    # 4. Calculate and write resource projections
+    # 3 & 4. Calculate projections and write all results back to Supabase
     projections = calculate_resource_projections(
         output["city_status"], 
         scenario_id, 
         profile["version"]
     )
-    write_resource_projections(projections)
+    write_all_results(output, projections)
     
     return {
         "status": "success", 
