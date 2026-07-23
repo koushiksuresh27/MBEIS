@@ -69,3 +69,16 @@ def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profi
         projections.append(proj)
         
     return projections
+
+def spot_check_covid_arithmetic(active_cases: int) -> dict:
+    """
+    Spot checks the [G1] resource arithmetic for a given number of active cases.
+    """
+    icu = math.ceil(active_cases * ICU_RATE)
+    non_icu = math.ceil(active_cases * NON_ICU_RATE)
+    o2 = (icu * ICU_O2_FLOW_LPM + non_icu * NON_ICU_O2_FLOW_LPM) * LPM_TO_MT_PER_DAY
+    return {
+        "icu_beds": icu,
+        "non_icu_beds": non_icu,
+        "oxygen_mt_per_day": o2
+    }

@@ -48,18 +48,40 @@ def write_seird_results(rows: list[dict]) -> None:
     Batch insert, not one-row-at-a-time, since a single simulation run produces
     one row per day (e.g. 90 rows for a 90-day window) per intervention_type.
     """
+    if not rows:
+        return
     supabase = get_client()
-    supabase.table("seird_results").insert(rows).execute()
+    sample = rows[0]
+    supabase.table("seird_results").delete().eq(
+        "scenario_id", sample["scenario_id"]
+    ).eq(
+        "pathogen_profile_version", sample["pathogen_profile_version"]
+    ).eq(
+        "intervention_type", sample["intervention_type"]
+    ).execute()
+    for i in range(0, len(rows), 500):
+        supabase.table("seird_results").insert(rows[i:i+500]).execute()
 
 
 def write_city_status(rows: list[dict]) -> None:
-    """
-    Writes a batch of city_status rows.
-    Each row must include: scenario_id, pathogen_profile_version, intervention_type,
-    city, day, active_cases_p10/p50/p90.
-    """
+    if not rows:
+        return
     supabase = get_client()
-    supabase.table("city_status").insert(rows).execute()
+    sample = rows[0]
+    print(f"[IO] Deleting city_status: scenario={sample['scenario_id']}, "
+          f"version={sample['pathogen_profile_version']}, "
+          f"intervention={sample['intervention_type']}")
+    result = supabase.table("city_status").delete().eq(
+        "scenario_id", sample["scenario_id"]
+    ).eq(
+        "pathogen_profile_version", sample["pathogen_profile_version"]
+    ).eq(
+        "intervention_type", sample["intervention_type"]
+    ).execute()
+    print(f"[IO] Delete result: {result.data}")
+    for i in range(0, len(rows), 500):
+        supabase.table("city_status").insert(rows[i:i+500]).execute()
+    print(f"[IO] Inserted {len(rows)} rows for {sample['intervention_type']}")
 
 
 def write_lockdown_recommendations(rows: list[dict]) -> None:
@@ -68,8 +90,19 @@ def write_lockdown_recommendations(rows: list[dict]) -> None:
     Each row must include: scenario_id, pathogen_profile_version, intervention_type,
     city, priority_rank, betweenness_score, eigenvector_score.
     """
+    if not rows:
+        return
     supabase = get_client()
-    supabase.table("lockdown_recommendations").insert(rows).execute()
+    sample = rows[0]
+    supabase.table("lockdown_recommendations").delete().eq(
+        "scenario_id", sample["scenario_id"]
+    ).eq(
+        "pathogen_profile_version", sample["pathogen_profile_version"]
+    ).eq(
+        "intervention_type", sample["intervention_type"]
+    ).execute()
+    for i in range(0, len(rows), 500):
+        supabase.table("lockdown_recommendations").insert(rows[i:i+500]).execute()
 
 
 def write_resource_projections(rows: list[dict]) -> None:
@@ -81,38 +114,42 @@ def write_resource_projections(rows: list[dict]) -> None:
     capacity_ceiling_oxygen_mt_per_day defaults to 17000 in the schema (Phase 1's
     fixed G1 ceiling) — you can omit it unless you're overriding the default.
     """
+    if not rows:
+        return
     supabase = get_client()
-    supabase.table("resource_projections").insert(rows).execute()
+    sample = rows[0]
+    supabase.table("resource_projections").delete().eq(
+        "scenario_id", sample["scenario_id"]
+    ).eq(
+        "pathogen_profile_version", sample["pathogen_profile_version"]
+    ).eq(
+        "intervention_type", sample["intervention_type"]
+    ).execute()
+    for i in range(0, len(rows), 500):
+        supabase.table("resource_projections").insert(rows[i:i+500]).execute()
 
+def write_all_results(pipeline_output: dict, resource_rows: list[dict]) -> None:
+    """
+    Writes all pipeline output to Supabase in one call, with idempotent
+    delete-before-insert per intervention_type.
+    """
+    from itertools import groupby
+    from operator import itemgetter
 
-# ---------------------------------------------------------------------------
-# Example usage — remove this block once you've wired real simulator output in.
-# This shows the exact expected shape for a single seird_results row.
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    # NOTE: this will fail unless a real scenario + pathogen_profiles row exists.
-    # Useful for testing the connection once Abhinav's profiler has written
-    # at least one profile, or once you've manually inserted a fake profile row
-    # via SQL Editor for testing purposes (see the "mock the upstream data"
-    # pattern discussed earlier in the project).
+    for table_key, write_fn in [
+        ("seird_results", write_seird_results),
+        ("city_status", write_city_status),
+        ("lockdown_recommendations", write_lockdown_recommendations),
+    ]:
+        rows = pipeline_output[table_key]
+        if not rows:
+            continue
+        sorted_rows = sorted(rows, key=itemgetter("intervention_type"))
+        for inv_type, group in groupby(sorted_rows, key=itemgetter("intervention_type")):
+            write_fn(list(group))
 
-    example_scenario_id = "bb0ff20e-b086-411b-8054-91560b1e88ec"
-
-    profile = get_latest_pathogen_profile(example_scenario_id)
-    print("Got profile:", profile)
-
-    example_seird_row = {
-        "scenario_id": example_scenario_id,
-        "pathogen_profile_version": profile["version"],
-        "intervention_type": "none",
-        "day": 1,
-        "infected_p10": 100,
-        "infected_p50": 150,
-        "infected_p90": 220,
-        "deaths_p10": 1,
-        "deaths_p50": 2,
-        "deaths_p90": 4,
-        "trajectory_sample": [{"trajectory_id": 1, "infected": 150, "deaths": 2}],
-    }
-    write_seird_results([example_seird_row])
-    print("Wrote a test seird_results row.")
+    # Resource projections come in separately
+    if resource_rows:
+        sorted_rr = sorted(resource_rows, key=itemgetter("intervention_type"))
+        for inv_type, group in groupby(sorted_rr, key=itemgetter("intervention_type")):
+            write_resource_projections(list(group))

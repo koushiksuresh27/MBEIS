@@ -49,32 +49,49 @@ def simulate(payload: SimulateRequest):
     Entry point for the Spread Simulator + Intervention Comparison (Koushik's service).
     Invoked directly by Supabase Edge Function, once per intervention type requested.
     """
-    # TODO (Koushik): Wire up the pipeline logic.
-    # from backend.simulator.pipeline import run_phase3
-    # from backend.simulator.simulator_io import (
-    #     get_latest_pathogen_profile,
-    #     write_seird_results,
-    #     write_city_status,
-    #     write_resource_projections
-    # )
+    from backend.simulator.pipeline import run_simulation_pipeline
+    from backend.simulator.resource_calculator import calculate_resource_projections
+    from backend.simulator.simulator_io import (
+        get_latest_pathogen_profile,
+        write_seird_results,
+        write_city_status,
+        write_lockdown_recommendations,
+        write_resource_projections
+    )
     
     scenario_id = payload.scenario_id
     intervention_type = payload.intervention_type
+    origin_city = "THRISSUR"  # Hardcoded origin for Phase 1 as requested
     
     # 1. Fetch pathogen profile from Supabase
-    # profile = get_latest_pathogen_profile(scenario_id)
+    profile = get_latest_pathogen_profile(scenario_id)
     
-    # 2. Run simulation for the specific intervention_type
-    # output = run_phase3(profile=profile, intervention_type=intervention_type, ...)
+    # 2. Run simulation pipeline
+    output = run_simulation_pipeline(
+        scenario_id=scenario_id,
+        pathogen_profile=profile,
+        origin_city=origin_city,
+        intervention_types=[intervention_type],
+        n_runs=50,  # Balanced runs for API request
+        days=90
+    )
     
     # 3. Write results back to Supabase
-    # write_seird_results(...)
-    # write_city_status(...)
-    # write_resource_projections(...)
+    write_seird_results(output["seird_results"])
+    write_city_status(output["city_status"])
+    write_lockdown_recommendations(output["lockdown_recommendations"])
+    
+    # 4. Calculate and write resource projections
+    projections = calculate_resource_projections(
+        output["city_status"], 
+        scenario_id, 
+        profile["version"]
+    )
+    write_resource_projections(projections)
     
     return {
         "status": "success", 
-        "message": f"Simulation for scenario '{scenario_id}' with intervention '{intervention_type}' triggered."
+        "message": f"Simulation for scenario '{scenario_id}' with intervention '{intervention_type}' completed and written to DB."
     }
 
 if __name__ == "__main__":
