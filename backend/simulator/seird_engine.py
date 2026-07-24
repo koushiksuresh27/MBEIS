@@ -4,8 +4,11 @@ import numpy as np
 from backend.simulator.simulator_io import (
     get_latest_pathogen_profile,
     write_seird_results,
-    write_city_status
+    write_city_status,
+    write_resource_projections
 )
+from backend.simulator.resource_calculator import calculate_resource_projections
+
 
 N_DAYS = 90
 
@@ -92,8 +95,12 @@ def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_da
         origin_idx = names.index(origin_city)
         I[origin_idx] = 1.0
     else:
-        # Fallback to the first city if origin is not found
-        I[0] = 1.0
+        # Should never reach here after run_simulation's boundary normalization.
+        # Raise instead of silently seeding the wrong city.
+        raise ValueError(
+            f"run_mc_iteration: origin_city '{origin_city}' not in names list. "
+            f"Ensure run_simulation normalized it via strip().upper() before calling."
+        )
 
     beta = r0 / infectious_period
     sigma = 1.0 / incubation_days
@@ -118,8 +125,8 @@ def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_da
         # cross-city seeding proportional to mobility-weighted infectious pressure
         import_pressure = W @ (I / np.maximum(pops, 1))
         cross_city_infections = effective_beta * S * import_pressure * 0.1
-
-        total_new_infections = new_infections + cross_city_infections
+        epsilon = (pops / pops.sum()) * 100.0
+        total_new_infections = new_infections + cross_city_infections + epsilon
 
         # Capping flows to available compartment sizes to prevent mass-conservation bugs
         total_new_infections = np.minimum(total_new_infections, S)
@@ -143,6 +150,18 @@ def triangular(low, mode, high, size):
     return np.random.triangular(float(low), float(mode), float(high), size)
 
 def run_simulation(scenario_id: str, origin_city: str, intervention_types: list[str], n_iterations: int = 500) -> None:
+    # Normalize origin_city at the boundary: strip whitespace and uppercase
+    # so that DB values like "Thrissur" match CITIES keys like "THRISSUR".
+    # This must be the single normalization point — do not add case-folding
+    # anywhere else (e.g. in run_mc_iteration) so the fix stays auditable.
+    origin_city = origin_city.strip().upper()
+    if origin_city not in CITIES:
+        raise ValueError(
+            f"origin_city '{origin_city}' (normalized) not found in CITIES dict. "
+            f"Valid keys: {list(CITIES.keys())}"
+        )
+    print(f"[engine] origin_city resolved to '{origin_city}'")
+
     profile = get_latest_pathogen_profile(scenario_id)
     
     names, base_W = build_mobility_matrix()
@@ -216,9 +235,22 @@ def run_simulation(scenario_id: str, origin_city: str, intervention_types: list[
         print(f"  [done] seird_results written for intervention={inv_type}")        
     sorted_city = sorted(city_rows_all, key=itemgetter("intervention_type"))
     for inv_type, group in groupby(sorted_city, key=itemgetter("intervention_type")):
-        write_city_status(list(group))
+        # Convert group to a list so it can be used multiple times
+        city_group = list(group)
+        
+        # 1. Write the city status 
+        write_city_status(city_group)
         print(f"  [done] city_status written for intervention={inv_type}")
+        
+        # 2. Wire up the resource calculator
+        # (Pass the profile so the calculator can scale severity based on CFR)
+        resource_rows = calculate_resource_projections(city_group, scenario_id, profile)
+        
+        # 3. Write the resource projections to Supabase
+        write_resource_projections(resource_rows)
+        print(f"  [done] resource_projections written for intervention={inv_type}")
+
     return {
         "seird_results": seird_rows_all,
-        "city_status": city_rows_all
+        "city_status": city_rows_all,
     }
