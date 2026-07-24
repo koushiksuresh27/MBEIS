@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
 
-def run_seird_node(population, R0, incubation_mean, clinical_duration, mortality_rate, contagiousness_factor, seed_infections=10, days=90):
+def run_seird_node(population, R0, incubation_mean, clinical_duration, mortality_rate, contagiousness_factor, seed_infections=10, days=90, initial_state=None):
     sigma = 1.0 / incubation_mean
     gamma = 1.0 / clinical_duration
     mu = mortality_rate * gamma
@@ -23,13 +23,16 @@ def run_seird_node(population, R0, incubation_mean, clinical_duration, mortality
         
         return [dSdt, dEdt, dIdt, dRdt, dDdt]
         
-    I0 = seed_infections
-    E0 = seed_infections
-    S0 = population - I0 - E0
-    R0_state = 0
-    D0 = 0
-    
-    y0 = [S0, E0, I0, R0_state, D0]
+    if initial_state is not None:
+        y0 = initial_state
+    else:
+        I0 = seed_infections
+        E0 = seed_infections
+        S0 = population - I0 - E0
+        R0_state = 0
+        D0 = 0
+        
+        y0 = [S0, E0, I0, R0_state, D0]
     t_eval = np.arange(0, days + 1)
     
     sol = solve_ivp(seird_deriv, [0, days], y0, method='RK45', t_eval=t_eval)

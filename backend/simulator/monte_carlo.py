@@ -11,7 +11,11 @@ def get_data_dir():
     return os.path.join(os.path.dirname(os.path.dirname(current_dir)), "data", "generated")
 
 def run_single_simulation(args):
-    sampled_R0, sampled_inc, sampled_cfr, nodes, graph_dict, origin_node_id, days = args
+    if len(args) == 8:
+        sampled_R0, sampled_inc, sampled_cfr, nodes, graph_dict, origin_node_id, days, initial_state = args
+    else:
+        sampled_R0, sampled_inc, sampled_cfr, nodes, graph_dict, origin_node_id, days = args
+        initial_state = None
     
     # Defaults since flat profile doesn't include these
     duration = 10
@@ -30,23 +34,28 @@ def run_single_simulation(args):
         nid = node["node_id"]
         pop = node["population"]
         
-        seeds = 0
-        if nid == origin_node_id:
-            seeds = 10
-        elif nid in neighbor_flux and total_flux > 0:
-            seeds = max(1, int(10 * (neighbor_flux[nid] / total_flux)))
-            
-        if seeds > 0:
-            df = run_seird_node(pop, sampled_R0, sampled_inc, duration, sampled_cfr, contagiousness, seed_infections=seeds, days=days)
+        if initial_state is not None and nid in initial_state:
+            node_initial_state = initial_state[nid]
+            df = run_seird_node(pop, sampled_R0, sampled_inc, duration, sampled_cfr, contagiousness, seed_infections=0, days=days, initial_state=node_initial_state)
             results[nid] = df[['S', 'E', 'I', 'R', 'D']].values
         else:
-            arr = np.zeros((days + 1, 5))
-            arr[:, 0] = pop
-            results[nid] = arr
+            seeds = 0
+            if nid == origin_node_id:
+                seeds = 10
+            elif nid in neighbor_flux and total_flux > 0:
+                seeds = max(1, int(10 * (neighbor_flux[nid] / total_flux)))
+                
+            if seeds > 0:
+                df = run_seird_node(pop, sampled_R0, sampled_inc, duration, sampled_cfr, contagiousness, seed_infections=seeds, days=days)
+                results[nid] = df[['S', 'E', 'I', 'R', 'D']].values
+            else:
+                arr = np.zeros((days + 1, 5))
+                arr[:, 0] = pop
+                results[nid] = arr
             
     return results
 
-def run_monte_carlo(profile, graph, origin_node_id, n_runs=100, days=90):
+def run_monte_carlo(profile, graph, origin_node_id, n_runs=100, days=90, initial_state=None):
     nodes_file = os.path.join(get_data_dir(), "nodes.json")
     with open(nodes_file, 'r') as f:
         nodes = json.load(f)
@@ -89,7 +98,7 @@ def run_monte_carlo(profile, graph, origin_node_id, n_runs=100, days=90):
     cfr_samples = stats.triang.ppf(samples[:, 2], c=cfr_c, loc=cfr_loc, scale=cfr_scale)
     
     args_list = [
-        (r0_samples[i], inc_samples[i], cfr_samples[i], nodes, graph_dict, origin_node_id, days)
+        (r0_samples[i], inc_samples[i], cfr_samples[i], nodes, graph_dict, origin_node_id, days, initial_state)
         for i in range(n_runs)
     ]
     
