@@ -49,11 +49,11 @@ def simulate(payload: SimulateRequest):
     Entry point for the Spread Simulator + Intervention Comparison (Koushik's service).
     Invoked directly by Supabase Edge Function, once per intervention type requested.
     """
-    from backend.simulator.pipeline import run_simulation_pipeline
+    from backend.simulator.seird_engine import run_simulation
     from backend.simulator.resource_calculator import calculate_resource_projections
     from backend.simulator.simulator_io import (
         get_latest_pathogen_profile,
-        write_all_results
+        write_resource_projections
     )
     
     scenario_id = payload.scenario_id
@@ -64,22 +64,20 @@ def simulate(payload: SimulateRequest):
     profile = get_latest_pathogen_profile(scenario_id)
     
     # 2. Run simulation pipeline
-    output = run_simulation_pipeline(
+    output = run_simulation(
         scenario_id=scenario_id,
-        pathogen_profile=profile,
         origin_city=origin_city,
         intervention_types=[intervention_type],
-        n_runs=50,  # Balanced runs for API request
-        days=90
+        n_iterations=50
     )
     
-    # 3 & 4. Calculate projections and write all results back to Supabase
+    # 3 & 4. Calculate projections and write back to Supabase
     projections = calculate_resource_projections(
         output["city_status"], 
         scenario_id, 
         profile["version"]
     )
-    write_all_results(output, projections)
+    write_resource_projections(projections)
     
     return {
         "status": "success", 
