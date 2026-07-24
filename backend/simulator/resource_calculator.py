@@ -1,34 +1,34 @@
 import math
 
-# [G1] Fixed conversion rates per 100 active cases
-ICU_RATE = 0.025
-NON_ICU_RATE = 0.205
-ISOLATION_RATE = 0.300
-
 # Oxygen flow rate constants [G1]
 ICU_O2_FLOW_LPM = 24        # litres per minute, per ICU patient
 NON_ICU_O2_FLOW_LPM = 10    # litres per minute, per non-ICU oxygen patient
 LPM_TO_MT_PER_DAY = 0.002058  # conversion factor
-NATIONAL_O2_CEILING_MT = 17000  # MT/day, fixed [G1] constant
+NATIONAL_O2_CEILING_MT = 17000  # MT/day, fixed [G1] constant[cite: 1]
 
-def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profile_version):
+# You should ideally query this, but locking it here matches the reference baseline
+COVID_REF_CFR = 0.02 
+
+def clamp(value, min_value, max_value):
+    return max(min_value, min(value, max_value))
+
+def calculate_resource_projections(city_status_rows, scenario_id, profile):
     """
-    Takes a list of city_status dictionaries (daily granularity) and aggregates
-    them into weekly resource projections using [G1] severity ratios.
+    Aggregates city_status (daily) into weekly resource projections.
+    Dynamically scales the [G1] COVID baselines against the profile's CFR.
+    """
     
-    city_status_rows format expected:
-    [
-      {
-         "scenario_id": "...", 
-         "pathogen_profile_version": 1,
-         "intervention_type": "none",
-         "city": "BENGALURU",
-         "day": 1,
-         "active_cases_p50": 1500
-      }, ...
-    ]
-    """
-    # Group by (intervention_type, city, week)
+    # 1. Calculate dynamic severity shares based on the profile's CFR[cite: 1]
+    cfr = profile.get("cfr_most_likely", COVID_REF_CFR)
+    severity_ratio = clamp(cfr / COVID_REF_CFR, 0.3, 15)
+    
+    icu_share = clamp(0.025 * severity_ratio, 0.025, 0.50)
+    nonicu_share = clamp(0.205 * math.sqrt(severity_ratio), 0.205, 0.35)
+    
+    remaining_share = 1.0 - icu_share - nonicu_share
+    isolation_share = remaining_share * (30 / 77)
+    
+    # 2. Group by (intervention_type, city, week)
     weekly_max = {}
     
     for row in city_status_rows:
@@ -42,21 +42,21 @@ def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profi
         if key not in weekly_max:
             weekly_max[key] = active
         else:
-            # We take the peak active cases in that week to be safe for capacity planning
             weekly_max[key] = max(weekly_max[key], active)
             
+    # 3. Generate Projections
     projections = []
     for (inv, city, week), peak_active in weekly_max.items():
-        icu = math.ceil(peak_active * ICU_RATE)
-        non_icu = math.ceil(peak_active * NON_ICU_RATE)
-        isolation = math.ceil(peak_active * ISOLATION_RATE)
+        icu = math.ceil(peak_active * icu_share)
+        non_icu = math.ceil(peak_active * nonicu_share)
+        isolation = math.ceil(peak_active * isolation_share)
         
-        # O2 demand = (ICU patients * 24 LPM + non-ICU patients * 10 LPM) * conversion
+        # O2 demand = (ICU patients * 24 LPM + non-ICU patients * 10 LPM) * conversion[cite: 1]
         oxygen_mt = (icu * ICU_O2_FLOW_LPM + non_icu * NON_ICU_O2_FLOW_LPM) * LPM_TO_MT_PER_DAY
         
         proj = {
             "scenario_id": scenario_id,
-            "pathogen_profile_version": pathogen_profile_version,
+            "pathogen_profile_version": profile["version"],
             "intervention_type": inv,
             "city": city,
             "week": week,
@@ -69,16 +69,3 @@ def calculate_resource_projections(city_status_rows, scenario_id, pathogen_profi
         projections.append(proj)
         
     return projections
-
-def spot_check_covid_arithmetic(active_cases: int) -> dict:
-    """
-    Spot checks the [G1] resource arithmetic for a given number of active cases.
-    """
-    icu = math.ceil(active_cases * ICU_RATE)
-    non_icu = math.ceil(active_cases * NON_ICU_RATE)
-    o2 = (icu * ICU_O2_FLOW_LPM + non_icu * NON_ICU_O2_FLOW_LPM) * LPM_TO_MT_PER_DAY
-    return {
-        "icu_beds": icu,
-        "non_icu_beds": non_icu,
-        "oxygen_mt_per_day": o2
-    }
