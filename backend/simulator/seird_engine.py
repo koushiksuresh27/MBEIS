@@ -1,5 +1,10 @@
 import math
 import numpy as np
+import random
+
+# Locks the random number generator so the Monte Carlo picks the exact same "random" numbers every time
+np.random.seed(42)
+random.seed(42)
 
 from backend.simulator.simulator_io import (
     get_latest_pathogen_profile,
