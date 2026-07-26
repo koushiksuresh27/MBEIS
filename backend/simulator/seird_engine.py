@@ -71,11 +71,6 @@ def build_mobility_matrix():
     return names, W
 
 def build_meta_mobility_matrix(meta_edges_path: str = "meta_mobility_edges.csv"):
-    """
-    Load Meta radiation model edge weights from CSV.
-    Falls back to Haversine gravity matrix if file not found.
-    CSV columns: source_node_id, target_node_id, normalized_terrestrial_weight
-    """
     import os
     import csv
     if not os.path.exists(meta_edges_path):
@@ -87,6 +82,9 @@ def build_meta_mobility_matrix(meta_edges_path: str = "meta_mobility_edges.csv")
     name_to_idx = {name: i for i, name in enumerate(names)}
     W = np.zeros((n, n))
     
+    # Demographic correction for missing youth/Instagram users
+    DEMOGRAPHIC_CORRECTION_SCALAR = 4.5 
+    
     with open(meta_edges_path, newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -96,11 +94,13 @@ def build_meta_mobility_matrix(meta_edges_path: str = "meta_mobility_edges.csv")
             if src in name_to_idx and tgt in name_to_idx:
                 i = name_to_idx[src]
                 j = name_to_idx[tgt]
-                W[i, j] = weight
+                # Apply the demographic band-aid
+                W[i, j] = weight * DEMOGRAPHIC_CORRECTION_SCALAR
     
+    # Scale maximum edge weight back down to 1.0 for proper inter-city seeding dynamics
     if W.max() > 0:
         W = W / W.max()
-    
+            
     return names, W
 
 def apply_intervention(W, intervention):
@@ -113,11 +113,15 @@ def apply_intervention(W, intervention):
         W2[W > threshold] *= 0.3
         return W2
     if intervention == "partial":
+        # Sever primary transit arteries completely
         W2 = W.copy()
         W2[W > 0.05] = 0.0
         return W2
     if intervention == "full":
-        return W * 0.30
+        # Inherit partial's artery severing, PLUS uniformly suppress the remaining regional travel by 70%
+        W2 = W.copy()
+        W2[W > 0.05] = 0.0
+        return W2 * 0.30
     return W
 
 def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_days, cfr, infectious_period):
@@ -162,7 +166,9 @@ def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_da
 
         # cross-city seeding proportional to mobility-weighted infectious pressure
         import_pressure = W @ (I / np.maximum(pops, 1))
-        cross_city_infections = beta * S * import_pressure * mobility_mult * 0.1
+        
+        # REMOVED mobility_mult to prevent double-suppression
+        cross_city_infections = beta * S * import_pressure * 0.1 
         epsilon = (pops / pops.sum()) * 100.0
         total_new_infections = new_infections + cross_city_infections + epsilon
 
@@ -212,23 +218,22 @@ def run_simulation(
     seird_rows_all = []
     city_rows_all = []
     
+    # 1. Draw all random samples exactly ONCE before the loop begins
+    r0_samples = triangular(profile["r0_low"], profile["r0_most_likely"], profile["r0_high"], n_iterations)
+    inc_samples = triangular(profile["incubation_days_low"], profile["incubation_days_most_likely"], profile["incubation_days_high"], n_iterations)
+    cfr_samples = triangular(profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"], n_iterations)
+    
+    if "infectious_period_most_likely" in profile:
+        inf_samples = triangular(profile["infectious_period_low"], profile["infectious_period_most_likely"], profile["infectious_period_high"], n_iterations)
+    else:
+        inf_samples = np.full(n_iterations, 7.0)
+
     for intervention in intervention_types:
         print(f"Running {n_iterations} MC iterations for intervention={intervention}...")
         all_infected = np.zeros((n_iterations, N_DAYS))
         all_deaths = np.zeros((n_iterations, N_DAYS))
         all_new_infections = np.zeros((n_iterations, N_DAYS))
         all_city_active = np.zeros((n_iterations, N_DAYS, len(names)))
-
-        r0_samples = triangular(profile["r0_low"], profile["r0_most_likely"], profile["r0_high"], n_iterations)
-        inc_samples = triangular(profile["incubation_days_low"], profile["incubation_days_most_likely"], profile["incubation_days_high"], n_iterations)
-        cfr_samples = triangular(profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"], n_iterations)
-        
-        # Pull infectious period bounds directly from the DB profile
-        # Use a fallback just in case the DB hasn't been migrated yet, but assume it will be
-        if "infectious_period_most_likely" in profile:
-            inf_samples = triangular(profile["infectious_period_low"], profile["infectious_period_most_likely"], profile["infectious_period_high"], n_iterations)
-        else:
-            inf_samples = np.full(n_iterations, 7.0)
 
         for it in range(n_iterations):
             inf, dth, new_inf, city_act = run_mc_iteration(
