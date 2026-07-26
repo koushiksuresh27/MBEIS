@@ -70,6 +70,39 @@ def build_mobility_matrix():
         W = W / W.max()
     return names, W
 
+def build_meta_mobility_matrix(meta_edges_path: str = "meta_mobility_edges.csv"):
+    """
+    Load Meta radiation model edge weights from CSV.
+    Falls back to Haversine gravity matrix if file not found.
+    CSV columns: source_node_id, target_node_id, normalized_terrestrial_weight
+    """
+    import os
+    import csv
+    if not os.path.exists(meta_edges_path):
+        print(f"[engine] meta_edges_path '{meta_edges_path}' not found — falling back to Haversine")
+        return build_mobility_matrix()
+    
+    names = list(CITIES.keys())
+    n = len(names)
+    name_to_idx = {name: i for i, name in enumerate(names)}
+    W = np.zeros((n, n))
+    
+    with open(meta_edges_path, newline='') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            src = row['source_node_id']
+            tgt = row['target_node_id']
+            weight = float(row['normalized_terrestrial_weight'])
+            if src in name_to_idx and tgt in name_to_idx:
+                i = name_to_idx[src]
+                j = name_to_idx[tgt]
+                W[i, j] = weight
+    
+    if W.max() > 0:
+        W = W / W.max()
+    
+    return names, W
+
 def apply_intervention(W, intervention):
     """Down-weight mobility edges per intervention type"""
     if intervention == "none":
@@ -117,8 +150,8 @@ def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_da
     city_active = np.zeros((N_DAYS, n))
     
     W = apply_intervention(base_W, intervention)
-    local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
-    effective_beta = beta * local_mult
+    mobility_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
+    effective_beta = beta  # local transmission unaffected by travel restrictions
 
     for day in range(N_DAYS):
         new_infections = effective_beta * S * I / np.maximum(pops, 1)
@@ -129,7 +162,7 @@ def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_da
 
         # cross-city seeding proportional to mobility-weighted infectious pressure
         import_pressure = W @ (I / np.maximum(pops, 1))
-        cross_city_infections = effective_beta * S * import_pressure * 0.1
+        cross_city_infections = beta * S * import_pressure * mobility_mult * 0.1
         epsilon = (pops / pops.sum()) * 100.0
         total_new_infections = new_infections + cross_city_infections + epsilon
 
@@ -154,22 +187,27 @@ def run_mc_iteration(names, base_W, origin_city, intervention, r0, incubation_da
 def triangular(low, mode, high, size):
     return np.random.triangular(float(low), float(mode), float(high), size)
 
-def run_simulation(scenario_id: str, origin_city: str, intervention_types: list[str], n_iterations: int = 500) -> None:
-    # Normalize origin_city at the boundary: strip whitespace and uppercase
-    # so that DB values like "Thrissur" match CITIES keys like "THRISSUR".
+def run_simulation(
+    scenario_id: str,
+    origin_city: str,
+    intervention_types: list[str],
+    n_iterations: int = 500,
+    meta_edges_path: str = "meta_mobility_edges.csv"
+) -> None:
+    # Normalize origin_city at the boundary: case-insensitive lookup
+    # so that DB values match CITIES keys.
     # This must be the single normalization point — do not add case-folding
     # anywhere else (e.g. in run_mc_iteration) so the fix stays auditable.
-    origin_city = origin_city.strip().upper()
-    if origin_city not in CITIES:
-        raise ValueError(
-            f"origin_city '{origin_city}' (normalized) not found in CITIES dict. "
-            f"Valid keys: {list(CITIES.keys())}"
-        )
+    names = list(CITIES.keys())
+    matched = next((c for c in names if c.strip().lower() == origin_city.strip().lower()), None)
+    if matched is None:
+        raise ValueError(f"origin_city '{origin_city}' not found in CITIES. Available: {names}")
+    origin_city = matched
     print(f"[engine] origin_city resolved to '{origin_city}'")
 
     profile = get_latest_pathogen_profile(scenario_id)
     
-    names, base_W = build_mobility_matrix()
+    names, base_W = build_meta_mobility_matrix(meta_edges_path)
     
     seird_rows_all = []
     city_rows_all = []
