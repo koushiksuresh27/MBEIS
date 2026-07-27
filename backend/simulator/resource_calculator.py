@@ -23,7 +23,7 @@ def calculate_resource_projections(city_status_rows, scenario_id, profile):
     severity_ratio = clamp(cfr / COVID_REF_CFR, 0.3, 15)
     
     icu_share = clamp(0.025 * severity_ratio, 0.025, 0.50)
-    nonicu_share = clamp(0.205 * math.sqrt(severity_ratio), 0.205, 0.35)
+    nonicu_share = clamp(0.03 * severity_ratio, 0.02, 0.08)
     
     remaining_share = 1.0 - icu_share - nonicu_share
     isolation_share = remaining_share * (30 / 77)

@@ -13,9 +13,15 @@ if __name__ == "__main__":
     parser.add_argument("--meta_edges_path", default="meta_mobility_edges.csv")
     args = parser.parse_args()
 
+    CITY_ALIASES = {
+        "THRISSUR": "Kochi",
+        "Thrissur": "Kochi",
+    }
+    origin_city = CITY_ALIASES.get(args.origin_city, args.origin_city)
+
     seird_engine.run_simulation(
         scenario_id=args.scenario_id,
-        origin_city=args.origin_city,
+        origin_city=origin_city,
         intervention_types=["none", "rail_only", "partial", "full"],
         n_iterations=args.n_iterations,
         meta_edges_path=args.meta_edges_path,

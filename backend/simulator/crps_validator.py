@@ -71,3 +71,85 @@ def validate_crps(ensemble_trajectories: list[list[float]], observed: list[float
         "naive_baseline": baseline_crps,
         "skill_score": float(skill_score)
     }
+
+def apply_ascertainment_correction(
+    ensemble_trajectories: list[list[float]],
+    early_rate: float = 0.025,
+    ramp_start_rate: float = 0.03,
+    ramp_end_rate: float = 0.10,
+    early_phase_end: int = 32,
+) -> tuple[list[list[float]], list[float]]:
+    """
+    Scales raw model output (true infections) down to expected
+    ascertained-case-equivalent counts.
+    Days [0, early_phase_end): flat early_rate.
+    Days [early_phase_end, T): linear ramp from ramp_start_rate to
+    ramp_end_rate.
+    Returns (corrected_ensemble, rates_used_per_day).
+    
+    WHY: Confirmed cases severely undercounted true infections due to limited
+    testing in early 2020. This corrects the model's true infections output
+    down to the expected ascertained cases so they can be fairly scored against
+    historical case counts.
+    """
+    ens = np.array(ensemble_trajectories)
+    n_runs, n_days = ens.shape
+    
+    rates = np.zeros(n_days)
+    for day in range(n_days):
+        if day < early_phase_end:
+            rates[day] = early_rate
+        else:
+            total_ramp_days = n_days - early_phase_end
+            if total_ramp_days > 1:
+                fraction = (day - early_phase_end) / (total_ramp_days - 1)
+            else:
+                fraction = 0.0
+            rates[day] = ramp_start_rate + fraction * (ramp_end_rate - ramp_start_rate)
+            
+    corrected_ensemble = ens * rates
+    return corrected_ensemble.tolist(), rates.tolist()
+
+def validate_crps_with_ascertainment(
+    ensemble_trajectories: list[list[float]],
+    observed: list[float],
+    early_rate: float = 0.025,
+    ramp_start_rate: float = 0.03,
+    ramp_end_rate: float = 0.10,
+    early_phase_end: int = 32,
+) -> dict:
+    corrected_ensemble, rates = apply_ascertainment_correction(
+        ensemble_trajectories, early_rate, ramp_start_rate, ramp_end_rate, early_phase_end
+    )
+    result = validate_crps(corrected_ensemble, observed)
+    result["ascertainment_rates_applied"] = rates
+    return result
+
+def sweep_ascertainment_sensitivity(
+    ensemble_trajectories: list[list[float]],
+    observed: list[float]
+) -> list[dict]:
+    results = []
+    early_rates = [0.0145, 0.025, 0.036]
+    ramp_end_rates = [0.06, 0.10, 0.15]
+    ramp_start_rate = 0.03
+    
+    for er in early_rates:
+        for rer in ramp_end_rates:
+            res = validate_crps_with_ascertainment(
+                ensemble_trajectories, observed,
+                early_rate=er,
+                ramp_start_rate=ramp_start_rate,
+                ramp_end_rate=rer
+            )
+            results.append({
+                "early_rate": er,
+                "ramp_start_rate": ramp_start_rate,
+                "ramp_end_rate": rer,
+                "model_crps": res["model"]["crps_mean"],
+                "baseline_crps": res["naive_baseline"]["crps_mean"],
+                "skill_score": res["skill_score"]
+            })
+            
+    results.sort(key=lambda x: x["skill_score"], reverse=True)
+    return results

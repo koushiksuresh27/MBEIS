@@ -59,8 +59,8 @@ def write_seird_results(rows: list[dict]) -> None:
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    for i in range(0, len(rows), 500):
-        supabase.table("seird_results").insert(rows[i:i+500]).execute()
+    for i in range(0, len(rows), 100):
+        supabase.table("seird_results").insert(rows[i:i+100]).execute()
 
 
 def write_city_status(rows: list[dict]) -> None:
@@ -79,8 +79,8 @@ def write_city_status(rows: list[dict]) -> None:
         "intervention_type", sample["intervention_type"]
     ).execute()
     print(f"[IO] Delete result: {result.data}")
-    for i in range(0, len(rows), 500):
-        supabase.table("city_status").insert(rows[i:i+500]).execute()
+    for i in range(0, len(rows), 100):
+        supabase.table("city_status").insert(rows[i:i+100]).execute()
     print(f"[IO] Inserted {len(rows)} rows for {sample['intervention_type']}")
 
 
@@ -101,8 +101,8 @@ def write_lockdown_recommendations(rows: list[dict]) -> None:
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    for i in range(0, len(rows), 500):
-        supabase.table("lockdown_recommendations").insert(rows[i:i+500]).execute()
+    for i in range(0, len(rows), 100):
+        supabase.table("lockdown_recommendations").insert(rows[i:i+100]).execute()
 
 
 def write_resource_projections(rows: list[dict]) -> None:
@@ -125,8 +125,8 @@ def write_resource_projections(rows: list[dict]) -> None:
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    for i in range(0, len(rows), 500):
-        supabase.table("resource_projections").insert(rows[i:i+500]).execute()
+    for i in range(0, len(rows), 100):
+        supabase.table("resource_projections").insert(rows[i:i+100]).execute()
 
 def write_all_results(pipeline_output: dict, resource_rows: list[dict]) -> None:
     """

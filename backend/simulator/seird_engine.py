@@ -6,9 +6,6 @@ import os
 import csv
 from scipy.stats import qmc, triang
 
-# Locks the random number generator so the Monte Carlo picks the exact same "random" numbers every time
-np.random.seed(42)
-random.seed(42)
 
 from backend.simulator.simulator_io import (
     get_latest_pathogen_profile,
@@ -19,7 +16,7 @@ from backend.simulator.simulator_io import (
 from backend.simulator.resource_calculator import calculate_resource_projections
 
 
-N_DAYS = 90
+N_DAYS = 180
 
 # 15-city node data (research7.txt, CAGR-interpolated 2020 populations).
 CITIES = {
@@ -38,13 +35,11 @@ CITIES = {
     "Visakhapatnam": {"pop": 2_379_357,  "lat": 17.6868, "lon": 83.2185},
     "Bhopal":        {"pop": 2_253_211,  "lat": 23.2599, "lon": 77.4126},
     "Guwahati":      {"pop": 1_178_385,  "lat": 26.1445, "lon": 91.7362},
-    "THRISSUR":      {"pop": 3_188_000,  "lat": 10.5276, "lon": 76.2144}, 
-    "THIRUVANANTHAPURAM": {"pop": 2_584_752, "lat": 8.5241, "lon": 76.9366},
 }
 
 LOCAL_TRANSMISSION_MULTIPLIER = {
     'none': 1.0,
-    'rail_only': 1.0,      # Transit Halt only grounds flights, local life is normal
+    'rail_only': 0.85,     # Transit Halt grounds flights, stops intercity buses/trains (reduces local contact density)
     'partial': 0.6,        # 40% reduction in local contacts
     'full': 0.25           # 75% reduction in local contacts (strict stay-at-home)
 }
@@ -236,7 +231,9 @@ def apply_intervention(W_base, edge_types, intervention_type):
                 if is_air:
                     W[i, j] = 0.0
                     W[j, i] = 0.0
-                # terrestrial unchanged
+                else:
+                    W[i, j] *= 0.3
+                    W[j, i] *= 0.3
 
             elif intervention_type == 'partial':
                 if is_air:
@@ -485,3 +482,6 @@ def run_simulation(
         "seird_results": seird_rows_all,
         "city_status": city_rows_all,
     }
+
+
+

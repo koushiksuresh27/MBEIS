@@ -54,5 +54,13 @@ backend/data/generated/
 # Agent and Architecture documentation
 AGENTS.md
 SESSION_LOG.md
+outbreak-response-os-v3.1.md
 
+# Simulation debugging, logs, outputs
+visualize_results.py
+run_log.txt
+output.txt
+debug_single_run.py
 
+# Outbreak Dashboard
+outbreak-dashboard/

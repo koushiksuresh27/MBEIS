@@ -34,7 +34,13 @@ load_dotenv()
 
 # Assumes crps_validator.py is in the same directory or on PYTHONPATH
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from crps_validator import compute_crps, compute_naive_baseline_crps
+from crps_validator import (
+    compute_crps, 
+    compute_naive_baseline_crps,
+    validate_crps_with_ascertainment,
+    sweep_ascertainment_sensitivity,
+    apply_ascertainment_correction
+)
 
 SCENARIO_ID  = "bb0ff20e-b086-411b-8054-91560b1e88ec"
 INTERVENTION = "full"   # the blended historical run (unmitigated pre-56, suppressed post-56)
@@ -53,6 +59,7 @@ def fetch_model_ensemble(supabase) -> np.ndarray:
         .select("day, new_infections_trajectory_sample")
         .eq("scenario_id", SCENARIO_ID)
         .eq("intervention_type", INTERVENTION)
+        .lte("day", N_DAYS)
         .order("day")
         .execute()
         .data
@@ -252,6 +259,68 @@ def main():
     print("due to ICMR testing ascertainment bias. This inflates CRPS in days 1–55.")
     print("Directional validation (intervention divergence) is more meaningful than")
     print("absolute CRPS here — see handoff notes, Section 'known accepted limitation'.")
+    print()
+
+    # --- ASCERTAINMENT-CORRECTED RESULTS ---
+    print("\n" + "=" * 60)
+    print("ASCERTAINMENT-CORRECTED CRPS RESULTS")
+    print("=" * 60)
+    print("Correction applied: true infections scaled down to expected confirmed cases.")
+    print("Based on published literature (Bhaduri et al., Srinivas & James), this accounts")
+    print("for severe testing ascertainment bias in early 2020.")
+    print()
+
+    corrected_res = validate_crps_with_ascertainment(ensemble.tolist(), observed.tolist())
+    c_model_mean = corrected_res["model"]["crps_mean"]
+    c_baseline_mean = corrected_res["naive_baseline"]["crps_mean"]
+    c_skill_score = corrected_res["skill_score"]
+
+    print(f"  Corrected Model CRPS (mean)    : {c_model_mean:>10.2f}")
+    print(f"  Naive baseline CRPS (mean)     : {c_baseline_mean:>10.2f}")
+    print(f"  Corrected Skill Score          : {c_skill_score:>10.4f}")
+    print()
+
+    print("--- Sensitivity Sweep (9 Parameter Combinations) ---")
+    print(f"{'Early %':<10} {'Start %':<10} {'End %':<10} {'Mod CRPS':<10} {'Bas CRPS':<10} {'Skill Score':<10}")
+    sweep = sweep_ascertainment_sensitivity(ensemble.tolist(), observed.tolist())
+    all_positive = all(s['skill_score'] > 0 for s in sweep)
+    any_positive = any(s['skill_score'] > 0 for s in sweep)
+    
+    for s in sweep:
+        print(
+            f"{s['early_rate']*100:<9.1f}% "
+            f"{s['ramp_start_rate']*100:<9.1f}% "
+            f"{s['ramp_end_rate']*100:<9.1f}% "
+            f"{s['model_crps']:<10.2f} "
+            f"{s['baseline_crps']:<10.2f} "
+            f"{s['skill_score']:<10.4f}"
+        )
+
+    print("\n--- Corrected CRPS by Phase ---")
+    c_crps_per_day = corrected_res["model"]["crps_per_day"]
+    for label, (start, end) in phase_ranges.items():
+        phase_crps = np.mean(c_crps_per_day[start:end])
+        print(f"  {label:<42} : {phase_crps:.2f}")
+
+    print("\n--- 3 Days with Largest Corrected CRPS (highest divergence) ---")
+    
+    corr_ens, _ = apply_ascertainment_correction(ensemble.tolist())
+    corr_ens_arr = np.array(corr_ens)
+    c_worst = find_worst_days(c_crps_per_day, observed, corr_ens_arr, n=3)
+    print(f"{'Day':<6} {'CRPS':>8} {'Observed':>10} {'Model P10':>12} {'Model P50':>12} {'Model P90':>12}")
+    for w in c_worst:
+        print(
+            f"{w['sim_day']:<6} {w['crps']:>8.1f} {w['observed_cases']:>10,} "
+            f"{w['model_p10']:>12.1f} {w['model_p50']:>12.1f} {w['model_p90']:>12.1f}"
+        )
+        
+    print("\n  Verdict: ", end="")
+    if all_positive:
+        print("Skill score > 0 across the full sensitivity range. Model strongly outperforms baseline.")
+    elif any_positive:
+        print("Skill score > 0 only at generous ascertainment assumptions. Model marginally outperforms baseline.")
+    else:
+        print("Skill score never crosses 0. Model continues to underperform naive persistence.")
     print()
 
 

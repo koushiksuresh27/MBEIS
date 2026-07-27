@@ -48,8 +48,6 @@ const CITIES: Record<string, { lat: number; lng: number; displayName: string; po
   "BENGALURU": { lat: 12.9716, lng: 77.5946, displayName: "Bengaluru", population: 11282457 },
   "CHENNAI": { lat: 13.0827, lng: 80.2707, displayName: "Chennai", population: 10204689 },
   "KOCHI": { lat: 9.9312, lng: 76.2673, displayName: "Kochi", population: 3716804 },
-  "THRISSUR": { lat: 10.5276, lng: 76.2144, displayName: "Thrissur", population: 3716804 },
-  "THIRUVANANTHAPURAM": { lat: 8.5241, lng: 76.9366, displayName: "Thiruvananthapuram", population: 3716804 },
 };
 
 const MOBILITY_EDGES = [
@@ -126,7 +124,7 @@ export default function BubbleMap({
     if (!isPlaying) return;
     const interval = setInterval(() => {
       onDayChange((prev: number) => {
-        if (prev >= 90) { setIsPlaying(false); return 90; }
+        if (prev >= 180) { setIsPlaying(false); return 180; }
         return prev + 1;
       });
     }, 80);
@@ -137,11 +135,8 @@ export default function BubbleMap({
     const casesByCity: Record<string, number> = {};
     const statsByCity: Record<string, any> = {};
 
-    const cityDataKeys = Object.keys(cityData);
-
     Object.keys(CITIES).forEach((cityKey) => {
-      const matchingKey = cityDataKeys.find(k => k.toLowerCase() === cityKey.toLowerCase());
-      const cityRows = matchingKey ? cityData[matchingKey]?.[activeIntervention] ?? [] : [];
+      const cityRows = cityData[cityKey]?.[activeIntervention] ?? [];
       const row = cityRows.find(r => r.day === simulationDay);
       const cases = parseFloat(String(row?.active_cases_p50 ?? '0'));
       casesByCity[cityKey] = cases;
@@ -184,7 +179,7 @@ export default function BubbleMap({
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-3 pointer-events-none z-10">
         <div className="bg-surface/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-outline pointer-events-auto shadow-sm">
           <p className="font-sans font-semibold text-on-background text-xs">City-Level Spread</p>
-          <p className="font-mono text-[10px] text-on-surface-variant">Thrissur origin · 90-day run</p>
+          <p className="font-mono text-[10px] text-on-surface-variant">Thrissur origin · 180-day run</p>
         </div>
 
         <div className="flex gap-1.5 flex-wrap justify-end pointer-events-auto">
@@ -416,7 +411,7 @@ export default function BubbleMap({
           <span className="font-mono text-sm text-on-surface-variant">
             Day <span className="text-on-background font-semibold">{simulationDay}</span>
             <span className="text-xs ml-2 opacity-60">
-              {simulationDay <= 32 ? '· Containment' : simulationDay <= 55 ? '· Exponential Liftoff' : '· National Lockdown'}
+              {simulationDay <= 32 ? '· Containment' : simulationDay <= 55 ? '· Exponential Liftoff' : `· ${INTERVENTION_LABELS[activeIntervention]}`}
             </span>
           </span>
           <button
@@ -439,7 +434,7 @@ export default function BubbleMap({
           </button>
         </div>
         <input
-          type="range" min={1} max={90} value={simulationDay}
+          type="range" min={1} max={180} value={simulationDay}
           onChange={e => {
             setIsPlaying(false);
             onDayChange(Number(e.target.value));

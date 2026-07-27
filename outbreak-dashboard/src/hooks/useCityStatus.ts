@@ -35,14 +35,15 @@ export function useCityStatus(scenarioId: string) {
         const grouped: Record<string, Record<string, CityStatus[]>> = {};
 
         results?.forEach(row => {
-          if (!grouped[row.city]) {
-            grouped[row.city] = {};
+          const cityKey = row.city.toUpperCase();
+          if (!grouped[cityKey]) {
+            grouped[cityKey] = {};
           }
-          if (!grouped[row.city][row.intervention_type]) {
-            grouped[row.city][row.intervention_type] = [];
+          if (!grouped[cityKey][row.intervention_type]) {
+            grouped[cityKey][row.intervention_type] = [];
           }
 
-          grouped[row.city][row.intervention_type].push({
+          grouped[cityKey][row.intervention_type].push({
             day: row.day,
             city: row.city,
             active_cases_p10: row.active_cases_p10,

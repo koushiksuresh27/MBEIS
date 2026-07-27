@@ -76,7 +76,7 @@ const SpaghettiPlot = ({
   });
 
   const xMin = 1;
-  const xMax = 90;
+  const xMax = 180;
 
   const getX = (day: number) => padLeft + ((day - xMin) / (xMax - xMin)) * innerWidth;
   
@@ -90,7 +90,7 @@ const SpaghettiPlot = ({
     return padTop + innerHeight - (val / maxVal) * innerHeight;
   };
 
-  const xTicks = [1, 15, 30, 45, 60, 75, 90];
+  const xTicks = [1, 30, 60, 90, 120, 150, 180];
   const yTickCount = 5;
   const yTicks = Array.from({ length: yTickCount }).map((_, i) => {
     if (logScale) {
@@ -230,13 +230,13 @@ const SpaghettiPlot = ({
 export default function AnalystView() {
   const { data, loading, error } = useSeirdResults(SCENARIO_ID);
   const { data: resourceData, loading: resLoading, error: resError } = useResourceProjections(SCENARIO_ID);
-  const { data: cityData, error: cityError } = useCityStatus(SCENARIO_ID);
+  const { data: cityData, loading: cityLoading, error: cityError } = useCityStatus(SCENARIO_ID);
 
 
 
   const [logScale, setLogScale] = useState(false);
   const [plotMode, setPlotMode] = useState<'fan' | 'spaghetti'>('fan');
-  const [mapDay, setMapDay] = useState(90);
+  const [mapDay, setMapDay] = useState(180);
   const [mapIntervention, setMapIntervention] = useState('none');
 
   // Toggle state for chart lines
@@ -256,7 +256,7 @@ export default function AnalystView() {
     if (!data || Object.keys(data).length === 0) return [];
 
     // Find the max day across all interventions
-    const maxDays = 90;
+    const maxDays = 180;
     const combinedData = [];
 
     for (let day = 1; day <= maxDays; day++) {
@@ -288,7 +288,7 @@ export default function AnalystView() {
   const resourceChartData = useMemo(() => {
     if (!resourceData || Object.keys(resourceData).length === 0) return [];
 
-    const maxWeeks = 13; // 90 days / 7 = ~13 weeks
+    const maxWeeks = 26; // 180 days / 7 = ~26 weeks
     const combinedData = [];
 
     for (let week = 1; week <= maxWeeks; week++) {
@@ -309,25 +309,25 @@ export default function AnalystView() {
   const summaryStats = useMemo(() => {
     if (!data || Object.keys(data).length === 0) return null;
 
-    const stats: Record<string, { peakVal: number, peakDay: number, day90Val: number }> = {};
+    const stats: Record<string, { peakVal: number, peakDay: number, day180Val: number }> = {};
 
     INTERVENTIONS.forEach(inv => {
       const invData = data[inv.key] || [];
       let peakVal = 0;
       let peakDay = 0;
-      let day90Val = 0;
+      let day180Val = 0;
 
       invData.forEach(d => {
         if (d.infected_p50 > peakVal) {
           peakVal = d.infected_p50;
           peakDay = d.day;
         }
-        if (d.day === 90) {
-          day90Val = d.infected_p50;
+        if (d.day === 180) {
+          day180Val = d.infected_p50;
         }
       });
 
-      stats[inv.key] = { peakVal, peakDay, day90Val };
+      stats[inv.key] = { peakVal, peakDay, day180Val };
     });
 
     return stats;
@@ -386,7 +386,7 @@ export default function AnalystView() {
     );
   };
 
-  if (loading || resLoading) {
+  if (loading || resLoading || cityLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -397,12 +397,12 @@ export default function AnalystView() {
     );
   }
 
-  if (error || resError) {
+  if (error || resError || cityError) {
     return (
       <div className="min-h-screen p-8 bg-background">
         <div className="bg-error-container text-on-error-container p-4 rounded-lg border border-error/20">
           <h2 className="font-bold mb-2">Error Loading Data</h2>
-          <p className="font-mono text-sm">{error?.message || resError?.message}</p>
+          <p className="font-mono text-sm">{error?.message || resError?.message || cityError?.message}</p>
         </div>
       </div>
     );
@@ -486,6 +486,7 @@ export default function AnalystView() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline)" vertical={false} opacity={0.5} />
                   <XAxis
                     dataKey="day"
+                    ticks={[1, 30, 60, 90, 120, 150, 180]}
                     stroke="var(--color-on-surface-variant)"
                     tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
                     label={{ value: 'Day', position: 'insideBottom', offset: -10, fill: 'var(--color-on-surface-variant)' }}
@@ -563,10 +564,10 @@ export default function AnalystView() {
                     </div>
                     <div className="pt-3 border-t border-outline/50">
                       <div className="text-lg font-semibold text-on-background font-mono">
-                        {Math.round(stats.day90Val).toLocaleString()}
+                        {Math.round(stats.day180Val).toLocaleString()}
                       </div>
                       <p className="text-xs text-on-surface-variant font-sans">
-                        Active at Day 90
+                        Active at Day 180
                       </p>
                     </div>
                   </div>
@@ -585,6 +586,7 @@ export default function AnalystView() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline)" vertical={false} opacity={0.5} />
                 <XAxis
                   dataKey="day"
+                  ticks={[1, 30, 60, 90, 120, 150, 180]}
                   stroke="var(--color-on-surface-variant)"
                   tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
                   label={{ value: 'Day', position: 'insideBottom', offset: -10, fill: 'var(--color-on-surface-variant)' }}
