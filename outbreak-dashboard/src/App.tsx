@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import AnalystView from './pages/AnalystView';
 import PlannerView from './pages/PlannerView';
 import BubbleMap from './components/analyst-view/BubbleMap';
 import { useCityStatus } from './hooks/useCityStatus';
+import SetupModal from './components/SetupModal';
+import type { ScenarioConfig } from './types/scenario';
 
 const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
 
@@ -11,6 +13,17 @@ function App() {
   const [isDark, setIsDark] = useState(false);
   const [mapDay, setMapDay] = useState(180);
   const [mapIntervention, setMapIntervention] = useState('none');
+
+  const [modalOpen, setModalOpen] = useState(true);
+  const [isFirstRun, setIsFirstRun] = useState(true);
+  const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig | null>(null);
+
+  const handleSimulationComplete = (config: ScenarioConfig) => {
+    setScenarioConfig(config);
+    setIsFirstRun(false);
+    setModalOpen(false);
+    window.dispatchEvent(new CustomEvent('simulation-complete'));
+  };
 
   const { data: cityData } = useCityStatus(SCENARIO_ID);
 
@@ -28,7 +41,11 @@ function App() {
       <header className="flex items-center justify-between px-6 py-4 border-b border-outline bg-surface sticky top-0 z-10 shrink-0">
         <div className="flex flex-col">
           <h1 className="text-lg font-bold text-primary tracking-tight font-sans">Outbreak Response OS</h1>
-          <p className="text-xs text-on-surface-variant font-mono">Historical COVID-19 · Thrissur origin · 90-day run</p>
+          <p className="text-xs text-on-surface-variant font-mono">
+            {scenarioConfig
+              ? `${scenarioConfig.pathogenName} · ${scenarioConfig.originCity} · ${scenarioConfig.nIterations} iterations`
+              : 'Configure a scenario to begin'}
+          </p>
         </div>
         
         {/* View Mode Toggle */}
@@ -79,8 +96,18 @@ function App() {
             )}
           </button>
           
-          <div className="bg-tertiary-fixed rounded-lg border border-tertiary/20 px-3 py-1.5 shadow-sm text-xs font-medium text-on-tertiary-fixed">
-            [ LLM Copilot — Kishore/Sujay ]
+          <div className="flex items-center gap-2">
+            {!isFirstRun && (
+              <button
+                onClick={() => setModalOpen(true)}
+                className="bg-surface rounded-lg border border-outline px-3 py-1.5 shadow-sm text-xs font-medium text-on-surface hover:bg-surface-variant transition-colors"
+              >
+                New Scenario
+              </button>
+            )}
+            <div className="bg-tertiary-fixed rounded-lg border border-tertiary/20 px-3 py-1.5 shadow-sm text-xs font-medium text-on-tertiary-fixed">
+              [ LLM Copilot — Kishore/Sujay ]
+            </div>
           </div>
         </div>
       </header>
@@ -103,6 +130,13 @@ function App() {
           <AnalystView />
         )}
       </div>
+      <SetupModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSimulationComplete={handleSimulationComplete}
+        isFirstRun={isFirstRun}
+        previousConfig={scenarioConfig ?? undefined}
+      />
     </div>
   );
 }
