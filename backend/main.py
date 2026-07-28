@@ -1,6 +1,9 @@
 import sys
 import os
 from pathlib import Path
+from fastapi.responses import StreamingResponse
+import subprocess, json
+import datetime
 
 # Root of the project is one level up from backend/
 ROOT = Path(__file__).parent.parent
@@ -26,11 +29,12 @@ class ProfileRequest(BaseModel):
 
 class SimulateRequest(BaseModel):
     scenario_id: str
-    intervention_type: str  # e.g., "none", "rail_only", "partial", "full"
+    origin_city: str = "THRISSUR"
+    n_iterations: int = 128
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "3.0.0", "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
 @app.post("/api/v1/profile")
 def profile(payload: ProfileRequest):
@@ -46,43 +50,36 @@ def profile(payload: ProfileRequest):
 @app.post("/api/v1/simulate")
 def simulate(payload: SimulateRequest):
     """
-    Entry point for the Spread Simulator + Intervention Comparison (Koushik's service).
-    Invoked directly by Supabase Edge Function, once per intervention type requested.
+    Streaming entry point for the Spread Simulator.
     """
-    from backend.simulator.seird_engine import run_simulation
-    from backend.simulator.resource_calculator import calculate_resource_projections
-    from backend.simulator.simulator_io import (
-        get_latest_pathogen_profile,
-        write_resource_projections
-    )
-    
-    scenario_id = payload.scenario_id
-    intervention_type = payload.intervention_type
-    origin_city = "THRISSUR"  # Hardcoded origin for Phase 1 as requested
-    
-    # 1. Fetch pathogen profile from Supabase
-    profile = get_latest_pathogen_profile(scenario_id)
-    
-    # 2. Run simulation pipeline
-    output = run_simulation(
-        scenario_id=scenario_id,
-        origin_city=origin_city,
-        intervention_types=[intervention_type],
-        n_iterations=50
-    )
-    
-    # 3 & 4. Calculate projections and write back to Supabase
-    projections = calculate_resource_projections(
-        output["city_status"], 
-        scenario_id, 
-        profile["version"]
-    )
-    write_resource_projections(projections)
-    
-    return {
-        "status": "success", 
-        "message": f"Simulation for scenario '{scenario_id}' with intervention '{intervention_type}' completed and written to DB."
-    }
+    async def event_stream():
+        cmd = [
+            sys.executable, "-u", "-m", "backend.simulator.run_scenario",
+            "--scenario_id", payload.scenario_id,
+            "--origin_city", payload.origin_city,
+            "--n_iterations", str(payload.n_iterations),
+            "--meta_edges_path", "backend/simulator/meta_mobility_edges.csv"
+        ]
+        
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        for line in process.stdout:
+            yield f'data: {{"type": "progress", "message": {json.dumps(line.strip())}}}\n\n'
+            
+        process.wait()
+        if process.returncode == 0:
+            yield 'data: {"type": "complete", "message": "Simulation complete"}\n\n'
+        else:
+            stderr_content = process.stderr.read().strip()
+            yield f'data: {{"type": "error", "message": {json.dumps(stderr_content)}}}\n\n'
+            
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 if __name__ == "__main__":
     import uvicorn
