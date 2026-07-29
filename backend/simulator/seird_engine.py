@@ -20,21 +20,21 @@ N_DAYS = 180
 
 # 15-city node data (research7.txt, CAGR-interpolated 2020 populations).
 CITIES = {
-    "Delhi":         {"pop": 24_268_206, "lat": 28.7041, "lon": 77.1025},
-    "Mumbai":        {"pop": 19_537_745, "lat": 19.0760, "lon": 72.8777},
-    "Kolkata":       {"pop": 19_074_357, "lat": 22.5726, "lon": 88.3639},
-    "Bengaluru":     {"pop": 11_282_457, "lat": 12.9716, "lon": 77.5946},
-    "Chennai":       {"pop": 10_204_689, "lat": 13.0827, "lon": 80.2707},
-    "Hyderabad":     {"pop": 8_647_544,  "lat": 17.3850, "lon": 78.4867},
-    "Ahmedabad":     {"pop": 7_151_558,  "lat": 23.0225, "lon": 72.5714},
-    "Pune":          {"pop": 6_128_192,  "lat": 18.5204, "lon": 73.8567},
-    "Lucknow":       {"pop": 4_145_235,  "lat": 26.8467, "lon": 80.9462},
-    "Kochi":         {"pop": 3_716_804,  "lat": 9.9312,  "lon": 76.2673},
-    "Jaipur":        {"pop": 3_682_557,  "lat": 26.9124, "lon": 75.7873},
-    "Patna":         {"pop": 2_788_687,  "lat": 25.5941, "lon": 85.1376},
-    "Visakhapatnam": {"pop": 2_379_357,  "lat": 17.6868, "lon": 83.2185},
-    "Bhopal":        {"pop": 2_253_211,  "lat": 23.2599, "lon": 77.4126},
-    "Guwahati":      {"pop": 1_178_385,  "lat": 26.1445, "lon": 91.7362},
+    "Delhi":         {"pop": 33_127_402, "lat": 28.7041, "lon": 77.1025},
+    "Mumbai":        {"pop": 23_582_050, "lat": 19.0760, "lon": 72.8777},
+    "Kolkata":       {"pop": 24_384_528, "lat": 22.5726, "lon": 88.3639},
+    "Bengaluru":     {"pop": 13_678_383, "lat": 12.9716, "lon": 77.5946},
+    "Chennai":       {"pop": 11_362_949, "lat": 13.0827, "lon": 80.2707},
+    "Hyderabad":     {"pop": 9_790_908,  "lat": 17.3850, "lon": 78.4867},
+    "Ahmedabad":     {"pop": 7_649_898,  "lat": 23.0225, "lon": 72.5714},
+    "Pune":          {"pop": 7_926_450,  "lat": 18.5204, "lon": 73.8567},
+    "Lucknow":       {"pop": 5_228_335,  "lat": 26.8467, "lon": 80.9462},
+    "Kochi":         {"pop": 3_870_022,  "lat": 9.9312,  "lon": 76.2673},
+    "Jaipur":        {"pop": 4_039_465,  "lat": 26.9124, "lon": 75.7873},
+    "Patna":         {"pop": 5_175_312,  "lat": 25.5941, "lon": 85.1376},
+    "Visakhapatnam": {"pop": 1_695_716,  "lat": 17.6868, "lon": 83.2185},
+    "Bhopal":        {"pop": 2_451_628,  "lat": 23.2599, "lon": 77.4126},
+    "Guwahati":      {"pop": 1_349_253,  "lat": 26.1445, "lon": 91.7362},
 }
 
 LOCAL_TRANSMISSION_MULTIPLIER = {

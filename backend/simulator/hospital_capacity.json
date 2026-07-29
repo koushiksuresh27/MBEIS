@@ -1,0 +1,137 @@
+[
+    {
+        "node_id": "Delhi",
+        "total_beds": 58960,
+        "icu_beds": 2948,
+        "beds_per_1000_pop": 2.89,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "high",
+        "source": "Economic Survey of Delhi 2022-23 (Public + Private Sanctioned Beds)"
+    },
+    {
+        "node_id": "Mumbai",
+        "total_beds": 46378,
+        "icu_beds": 2318,
+        "beds_per_1000_pop": 2.31,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "high",
+        "source": "BMC Budget Report 2025-26 (15,302 govt + 31,076 private)"
+    },
+    {
+        "node_id": "Bengaluru",
+        "total_beds": 52086,
+        "icu_beds": 2604,
+        "beds_per_1000_pop": 3.4,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "CEIC / CBHI 2022 Karnataka Urban Hospital Beds (Public + estimated private base)"
+    },
+    {
+        "node_id": "Chennai",
+        "total_beds": 67536,
+        "icu_beds": 3376,
+        "beds_per_1000_pop": 5.9,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "CEIC / CBHI 2022 Tamil Nadu Urban Hospital Beds"
+    },
+    {
+        "node_id": "Kolkata",
+        "total_beds": 71336,
+        "icu_beds": 3566,
+        "beds_per_1000_pop": 4.7,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "CEIC / CBHI 2022 West Bengal Urban Hospital Beds (Public + estimated private)"
+    },
+    {
+        "node_id": "Hyderabad",
+        "total_beds": 21874,
+        "icu_beds": 1093,
+        "beds_per_1000_pop": 2.1,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "Telangana Health Dept Annual Report (Public) + Estimated Private"
+    },
+    {
+        "node_id": "Ahmedabad",
+        "total_beds": 49151,
+        "icu_beds": 2457,
+        "beds_per_1000_pop": 5.7,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "CEIC / CBHI 2022 Gujarat Urban Hospital Beds (Public + estimated private)"
+    },
+    {
+        "node_id": "Pune",
+        "total_beds": 38450,
+        "icu_beds": 1922,
+        "beds_per_1000_pop": 5.2,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "PMC Open Data / Extrapolated CDDEP estimates"
+    },
+    {
+        "node_id": "Lucknow",
+        "total_beds": 21500,
+        "icu_beds": 1075,
+        "beds_per_1000_pop": 5.4,
+        "overwhelm_threshold_pct": 0.65,
+        "data_quality": "medium",
+        "source": "UP Health Dept (Public) + Hospaccx Healthcare Consulting (Private sector extrapolation)"
+    },
+    {
+        "node_id": "Kochi",
+        "total_beds": 31250,
+        "icu_beds": 1562,
+        "beds_per_1000_pop": 9.2,
+        "overwhelm_threshold_pct": 0.7,
+        "data_quality": "medium",
+        "source": "Kerala DHS Health at a Glance 2021-22 (Ernakulam District Public + Private)"
+    },
+    {
+        "node_id": "Jaipur",
+        "total_beds": 18450,
+        "icu_beds": 922,
+        "beds_per_1000_pop": 4.5,
+        "overwhelm_threshold_pct": 0.65,
+        "data_quality": "medium",
+        "source": "Rajasthan Health Dept / Jaipur Development Authority (Public + 520+ Private Hospitals)"
+    },
+    {
+        "node_id": "Patna",
+        "total_beds": 12800,
+        "icu_beds": 640,
+        "beds_per_1000_pop": 4.1,
+        "overwhelm_threshold_pct": 0.6,
+        "data_quality": "medium",
+        "source": "Bihar Health Dept (including 5,462-bed PMCH expansion) + Private Estimates"
+    },
+    {
+        "node_id": "Visakhapatnam",
+        "total_beds": 15600,
+        "icu_beds": 780,
+        "beds_per_1000_pop": 6.8,
+        "overwhelm_threshold_pct": 0.65,
+        "data_quality": "medium",
+        "source": "Andhra Pradesh Health Dept (Urban Public + Extrapolated Private)"
+    },
+    {
+        "node_id": "Bhopal",
+        "total_beds": 14200,
+        "icu_beds": 710,
+        "beds_per_1000_pop": 5.7,
+        "overwhelm_threshold_pct": 0.65,
+        "data_quality": "medium",
+        "source": "Madhya Pradesh Health Dept (Public + Private Estimates)"
+    },
+    {
+        "node_id": "Guwahati",
+        "total_beds": 9500,
+        "icu_beds": 475,
+        "beds_per_1000_pop": 7.8,
+        "overwhelm_threshold_pct": 0.6,
+        "data_quality": "medium",
+        "source": "Assam Health Dept (Public + Extrapolated Urban Private Hubs)"
+    }
+]

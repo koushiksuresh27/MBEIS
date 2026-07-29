@@ -40,6 +40,35 @@ def get_latest_pathogen_profile(scenario_id: str) -> dict:
     return response.data[0]
 
 
+def cleanup_old_runs(scenario_id: str, keep_n: int = 2):
+    supabase = get_client()
+    distinct_runs = supabase.table('seird_results') \
+        .select('created_at') \
+        .eq('scenario_id', scenario_id) \
+        .order('created_at', desc=True) \
+        .execute()
+
+    seen = []
+    for row in distinct_runs.data:
+        if row['created_at'] not in seen:
+            seen.append(row['created_at'])
+
+    if len(seen) <= keep_n:
+        print(f"[cleanup] {len(seen)} run(s) found, no cleanup needed")
+        return
+
+    runs_to_delete = seen[keep_n:]
+    for old_created_at in runs_to_delete:
+        for table in ['seird_results', 'city_status', 'resource_projections']:
+            supabase.table(table) \
+                .delete() \
+                .eq('scenario_id', scenario_id) \
+                .eq('created_at', old_created_at) \
+                .execute()
+        print(f"[cleanup] Deleted old run: {old_created_at}")
+    print(f"[cleanup] Keeping {keep_n} most recent runs, deleted {len(runs_to_delete)} older run(s)")
+
+
 def write_seird_results(rows: list[dict]) -> None:
     """
     Writes a batch of seird_results rows.
@@ -153,3 +182,8 @@ def write_all_results(pipeline_output: dict, resource_rows: list[dict]) -> None:
         sorted_rr = sorted(resource_rows, key=itemgetter("intervention_type"))
         for inv_type, group in groupby(sorted_rr, key=itemgetter("intervention_type")):
             write_resource_projections(list(group))
+
+    # Clean up old runs after all tables written
+    all_rows = pipeline_output.get("seird_results", [])
+    if all_rows:
+        cleanup_old_runs(all_rows[0]["scenario_id"])
