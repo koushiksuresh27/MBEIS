@@ -11,7 +11,27 @@ with Abhinav's profiler service is the shape of the pathogen_profiles table —
 nothing else. This file only READS pathogen_profiles, never writes it.
 """
 
+import time
 from backend.simulator.supabase_client import get_client
+
+CHUNK_SIZE = 100
+
+
+def _insert_with_retry(supabase, table: str, rows: list[dict]) -> None:
+    """Insert rows in chunks with exponential backoff retry."""
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i:i + CHUNK_SIZE]
+        for attempt in range(4):
+            try:
+                supabase.table(table).insert(chunk).execute()
+                break
+            except Exception as e:
+                if attempt == 3:
+                    raise
+                wait = 2 ** attempt
+                print(f"[IO] {table} insert retry {attempt + 1}, waiting {wait}s: {e}")
+                time.sleep(wait)
+        time.sleep(0.3)
 
 
 def get_latest_pathogen_profile(scenario_id: str) -> dict:
@@ -40,42 +60,13 @@ def get_latest_pathogen_profile(scenario_id: str) -> dict:
     return response.data[0]
 
 
-def cleanup_old_runs(scenario_id: str, keep_n: int = 2):
-    supabase = get_client()
-    distinct_runs = supabase.table('seird_results') \
-        .select('created_at') \
-        .eq('scenario_id', scenario_id) \
-        .order('created_at', desc=True) \
-        .execute()
-
-    seen = []
-    for row in distinct_runs.data:
-        if row['created_at'] not in seen:
-            seen.append(row['created_at'])
-
-    if len(seen) <= keep_n:
-        print(f"[cleanup] {len(seen)} run(s) found, no cleanup needed")
-        return
-
-    runs_to_delete = seen[keep_n:]
-    for old_created_at in runs_to_delete:
-        for table in ['seird_results', 'city_status', 'resource_projections']:
-            supabase.table(table) \
-                .delete() \
-                .eq('scenario_id', scenario_id) \
-                .eq('created_at', old_created_at) \
-                .execute()
-        print(f"[cleanup] Deleted old run: {old_created_at}")
-    print(f"[cleanup] Keeping {keep_n} most recent runs, deleted {len(runs_to_delete)} older run(s)")
-
-
 def write_seird_results(rows: list[dict]) -> None:
     """
     Writes a batch of seird_results rows.
     Each row must include: scenario_id, pathogen_profile_version, intervention_type,
     day, infected_p10/p50/p90, deaths_p10/p50/p90, trajectory_sample (optional).
     Batch insert, not one-row-at-a-time, since a single simulation run produces
-    one row per day (e.g. 90 rows for a 90-day window) per intervention_type.
+    one row per day (e.g. 180 rows for a 180-day window) per intervention_type.
     """
     if not rows:
         return
@@ -88,8 +79,8 @@ def write_seird_results(rows: list[dict]) -> None:
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    for i in range(0, len(rows), 100):
-        supabase.table("seird_results").insert(rows[i:i+100]).execute()
+    _insert_with_retry(supabase, "seird_results", rows)
+    print(f"  [done] seird_results written for intervention={sample['intervention_type']}")
 
 
 def write_city_status(rows: list[dict]) -> None:
@@ -97,19 +88,14 @@ def write_city_status(rows: list[dict]) -> None:
         return
     supabase = get_client()
     sample = rows[0]
-    print(f"[IO] Deleting city_status: scenario={sample['scenario_id']}, "
-          f"version={sample['pathogen_profile_version']}, "
-          f"intervention={sample['intervention_type']}")
-    result = supabase.table("city_status").delete().eq(
+    supabase.table("city_status").delete().eq(
         "scenario_id", sample["scenario_id"]
     ).eq(
         "pathogen_profile_version", sample["pathogen_profile_version"]
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    print(f"[IO] Delete result: {result.data}")
-    for i in range(0, len(rows), 100):
-        supabase.table("city_status").insert(rows[i:i+100]).execute()
+    _insert_with_retry(supabase, "city_status", rows)
     print(f"[IO] Inserted {len(rows)} rows for {sample['intervention_type']}")
 
 
@@ -130,8 +116,7 @@ def write_lockdown_recommendations(rows: list[dict]) -> None:
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    for i in range(0, len(rows), 100):
-        supabase.table("lockdown_recommendations").insert(rows[i:i+100]).execute()
+    _insert_with_retry(supabase, "lockdown_recommendations", rows)
 
 
 def write_resource_projections(rows: list[dict]) -> None:
@@ -154,8 +139,9 @@ def write_resource_projections(rows: list[dict]) -> None:
     ).eq(
         "intervention_type", sample["intervention_type"]
     ).execute()
-    for i in range(0, len(rows), 100):
-        supabase.table("resource_projections").insert(rows[i:i+100]).execute()
+    _insert_with_retry(supabase, "resource_projections", rows)
+    print(f"  [done] resource_projections written for intervention={sample['intervention_type']}")
+
 
 def write_all_results(pipeline_output: dict, resource_rows: list[dict]) -> None:
     """
@@ -182,8 +168,3 @@ def write_all_results(pipeline_output: dict, resource_rows: list[dict]) -> None:
         sorted_rr = sorted(resource_rows, key=itemgetter("intervention_type"))
         for inv_type, group in groupby(sorted_rr, key=itemgetter("intervention_type")):
             write_resource_projections(list(group))
-
-    # Clean up old runs after all tables written
-    all_rows = pipeline_output.get("seird_results", [])
-    if all_rows:
-        cleanup_old_runs(all_rows[0]["scenario_id"])

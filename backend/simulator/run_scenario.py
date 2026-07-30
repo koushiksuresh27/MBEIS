@@ -1,9 +1,7 @@
 import argparse
-from backend.simulator import seird_engine
-import argparse
 import sys
-print("run_scenario.py started", flush=True)  # add this
 from backend.simulator import seird_engine
+print("run_scenario.py started", flush=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

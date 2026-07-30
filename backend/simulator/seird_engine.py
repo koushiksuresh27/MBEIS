@@ -295,7 +295,7 @@ def run_mc_iteration(names, base_W, edge_types, origin_city, intervention, r0, i
     if origin_city in names:
         origin_idx = names.index(origin_city)
         # S must be decremented by the seed amount to preserve mass conservation
-        seed = int(0.01 * CITIES[origin_city]["pop"])
+        seed = 500
         I[origin_idx] = seed
         S[origin_idx] -= seed
     else:
@@ -482,6 +482,7 @@ def run_simulation(
         "seird_results": seird_rows_all,
         "city_status": city_rows_all,
     }
+    
 
 
 

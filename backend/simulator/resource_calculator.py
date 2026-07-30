@@ -4,7 +4,7 @@ import math
 ICU_O2_FLOW_LPM = 24        # litres per minute, per ICU patient
 NON_ICU_O2_FLOW_LPM = 10    # litres per minute, per non-ICU oxygen patient
 LPM_TO_MT_PER_DAY = 0.002058  # conversion factor
-NATIONAL_O2_CEILING_MT = 17000  # MT/day, fixed [G1] constant[cite: 1]
+NATIONAL_O2_CEILING_MT = 9690  # MT/day, fixed [G1] constant[cite: 1]
 
 # You should ideally query this, but locking it here matches the reference baseline
 COVID_REF_CFR = 0.02 
