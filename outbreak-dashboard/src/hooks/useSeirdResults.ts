@@ -31,27 +31,16 @@ export function useSeirdResults(scenarioId: string) {
       try {
         setLoading(true);
 
-        const { data: latest } = await supabase
-          .from('seird_results')
-          .select('created_at')
-          .eq('scenario_id', scenarioId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (!latest) { 
-          setData({}); 
-          return; 
-        }
-        
-        const latestCreatedAt = latest.created_at;
-
         const { data: results, error: supaError } = await supabase
           .from('seird_results')
           .select('day, infected_p10, infected_p50, infected_p90, deaths_p10, deaths_p50, deaths_p90, intervention_type, trajectory_sample')
           .eq('scenario_id', scenarioId)
-          .eq('created_at', latestCreatedAt)
           .order('day', { ascending: true });
+
+        if (!results || results.length === 0) {
+          setData({});
+          return;
+        }
 
         if (supaError) throw supaError;
 

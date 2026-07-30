@@ -33,21 +33,21 @@ const EDGE_COLORS: Record<string, string> = {
 };
 
 const CITIES: Record<string, { lat: number; lng: number; displayName: string; population: number }> = {
-  "DELHI": { lat: 28.7041, lng: 77.1025, displayName: "Delhi", population: 24268206 },
-  "JAIPUR": { lat: 26.9124, lng: 75.7873, displayName: "Jaipur", population: 3682557 },
-  "LUCKNOW": { lat: 26.8467, lng: 80.9462, displayName: "Lucknow", population: 4145235 },
-  "PATNA": { lat: 25.5941, lng: 85.1376, displayName: "Patna", population: 2788687 },
-  "GUWAHATI": { lat: 26.1445, lng: 91.7362, displayName: "Guwahati", population: 1178385 },
-  "KOLKATA": { lat: 22.5726, lng: 88.3639, displayName: "Kolkata", population: 19074357 },
-  "BHOPAL": { lat: 23.2599, lng: 77.4126, displayName: "Bhopal", population: 2253211 },
-  "AHMEDABAD": { lat: 23.0225, lng: 72.5714, displayName: "Ahmedabad", population: 7151558 },
-  "MUMBAI": { lat: 19.0760, lng: 72.8777, displayName: "Mumbai", population: 19537745 },
-  "PUNE": { lat: 18.5204, lng: 73.8567, displayName: "Pune", population: 6128192 },
-  "HYDERABAD": { lat: 17.3850, lng: 78.4867, displayName: "Hyderabad", population: 8647544 },
-  "VISAKHAPATNAM": { lat: 17.6868, lng: 83.2185, displayName: "Visakhapatnam", population: 2379357 },
-  "BENGALURU": { lat: 12.9716, lng: 77.5946, displayName: "Bengaluru", population: 11282457 },
-  "CHENNAI": { lat: 13.0827, lng: 80.2707, displayName: "Chennai", population: 10204689 },
-  "KOCHI": { lat: 9.9312, lng: 76.2673, displayName: "Kochi", population: 3716804 },
+  "DELHI": { lat: 28.7041, lng: 77.1025, displayName: "Delhi", population: 33_127_402 },
+  "MUMBAI": { lat: 19.0760, lng: 72.8777, displayName: "Mumbai", population: 23_582_050 },
+  "KOLKATA": { lat: 22.5726, lng: 88.3639, displayName: "Kolkata", population: 24_384_528 },
+  "BENGALURU": { lat: 12.9716, lng: 77.5946, displayName: "Bengaluru", population: 13_678_383 },
+  "CHENNAI": { lat: 13.0827, lng: 80.2707, displayName: "Chennai", population: 11_362_949 },
+  "HYDERABAD": { lat: 17.3850, lng: 78.4867, displayName: "Hyderabad", population: 9_790_908 },
+  "AHMEDABAD": { lat: 23.0225, lng: 72.5714, displayName: "Ahmedabad", population: 7_649_898 },
+  "PUNE": { lat: 18.5204, lng: 73.8567, displayName: "Pune", population: 7_926_450 },
+  "LUCKNOW": { lat: 26.8467, lng: 80.9462, displayName: "Lucknow", population: 5_228_335 },
+  "KOCHI": { lat: 9.9312, lng: 76.2673, displayName: "Kochi", population: 3_870_022 },
+  "JAIPUR": { lat: 26.9124, lng: 75.7873, displayName: "Jaipur", population: 4_039_465 },
+  "PATNA": { lat: 25.5941, lng: 85.1376, displayName: "Patna", population: 5_175_312 },
+  "VISAKHAPATNAM": { lat: 17.6868, lng: 83.2185, displayName: "Visakhapatnam", population: 1_695_716 },
+  "BHOPAL": { lat: 23.2599, lng: 77.4126, displayName: "Bhopal", population: 2_451_628 },
+  "GUWAHATI": { lat: 26.1445, lng: 91.7362, displayName: "Guwahati", population: 1_349_253 },
 };
 
 const MOBILITY_EDGES = [
@@ -188,8 +188,8 @@ export default function BubbleMap({
               key={inv.key}
               onClick={() => onInterventionChange(inv.key)}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono border transition-all ${activeIntervention === inv.key
-                  ? 'bg-surface border-outline text-on-background shadow-sm'
-                  : 'bg-surface/70 border-outline/50 text-on-surface-variant opacity-60 hover:opacity-80'
+                ? 'bg-surface border-outline text-on-background shadow-sm'
+                : 'bg-surface/70 border-outline/50 text-on-surface-variant opacity-60 hover:opacity-80'
                 }`}
             >
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: inv.color }} />
