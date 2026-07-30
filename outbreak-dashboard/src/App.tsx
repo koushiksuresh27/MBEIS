@@ -14,8 +14,8 @@ function App() {
   const [mapDay, setMapDay] = useState(180);
   const [mapIntervention, setMapIntervention] = useState('none');
 
-  const [modalOpen, setModalOpen] = useState(true);
-  const [isFirstRun, setIsFirstRun] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [isFirstRun, setIsFirstRun] = useState(false);
   const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig | null>(null);
 
   const handleSimulationComplete = (config: ScenarioConfig) => {

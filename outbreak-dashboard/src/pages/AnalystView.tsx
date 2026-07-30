@@ -21,7 +21,8 @@ const INTERVENTIONS = [
   { key: 'none', label: 'Baseline (None)', color: 'var(--color-status-red)' },
   { key: 'rail_only', label: 'Transit Halt', color: 'var(--color-status-amber)' },
   { key: 'partial', label: 'Partial Lockdown', color: 'var(--color-primary)' },
-  { key: 'full', label: 'Full Quarantine', color: 'var(--color-status-green)' }
+  { key: 'full', label: 'Full Quarantine', color: 'var(--color-status-green)' },
+  { key: 'custom_phase_1', label: 'Custom Plan', color: '#7C3AED' }
 ];
 
 const SpaghettiPlot = ({ 
@@ -123,7 +124,7 @@ const SpaghettiPlot = ({
       >
         {yTicks.map((val, i) => {
           const y = getY(val);
-          const label = val >= 1000 ? `${(val / 1000).toFixed(logScale ? 1 : 0)}k` : Math.round(val);
+          const label = val >= 1000000 ? `${(val / 1000000).toFixed(2)}M` : val >= 1000 ? `${(val / 1000).toFixed(logScale ? 1 : 0)}k` : Math.round(val);
           return (
             <g key={`y-${i}`}>
               <line x1={padLeft} y1={y} x2={dim.width - padRight} y2={y} stroke="var(--color-outline)" strokeDasharray="3 3" opacity={0.5} />
@@ -240,7 +241,8 @@ export default function AnalystView() {
     none: true,
     rail_only: true,
     partial: true,
-    full: true
+    full: true,
+    custom_phase_1: true
   });
 
   const toggleLine = (key: string) => {
@@ -290,10 +292,10 @@ export default function AnalystView() {
     for (let week = 1; week <= maxWeeks; week++) {
       const weekData: any = { week };
       INTERVENTIONS.forEach(inv => {
-        const invData = resourceData[inv.key]?.find(d => d.week === week);
-        if (invData) {
-          weekData[`${inv.key}_oxygen_mt`] = invData.oxygen_mt;
-          weekData[`${inv.key}_icu_beds`] = invData.icu_beds;
+        const invDataList = resourceData[inv.key]?.filter(d => d.week === week);
+        if (invDataList && invDataList.length > 0) {
+          weekData[`${inv.key}_oxygen_mt`] = invDataList.reduce((sum, d) => sum + d.oxygen_mt, 0);
+          weekData[`${inv.key}_icu_beds`] = invDataList.reduce((sum, d) => sum + d.icu_beds, 0);
         }
       });
       combinedData.push(weekData);
@@ -490,7 +492,7 @@ export default function AnalystView() {
                   <YAxis
                     stroke="var(--color-on-surface-variant)"
                     tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
-                    tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}
+                    tickFormatter={(val) => val >= 1000000 ? `${(val / 1000000).toFixed(2)}M` : val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}
                     scale={logScale ? 'log' : 'linear'}
                     domain={logScale ? ['auto', 'auto'] : [0, 'auto']}
                   />
@@ -590,7 +592,7 @@ export default function AnalystView() {
                 <YAxis
                   stroke="var(--color-on-surface-variant)"
                   tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
-                  tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
+                  tickFormatter={(val) => val >= 1000000 ? `${(val / 1000000).toFixed(2)}M` : val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
                 />
                 <Tooltip content={<CustomTooltip />} />
 
@@ -679,10 +681,10 @@ export default function AnalystView() {
 
                 {/* Reference Line for National Capacity */}
                 <ReferenceLine
-                  y={17000}
+                  y={9690}
                   stroke="var(--color-error)"
                   strokeDasharray="3 3"
-                  label={{ position: 'top', value: 'National Capacity (17k MT)', fill: 'var(--color-error)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+                  label={{ position: 'top', value: 'National Capacity (9.69k MT)', fill: 'var(--color-error)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
                 />
 
                 {INTERVENTIONS.map(inv => activeLines[inv.key] && (
