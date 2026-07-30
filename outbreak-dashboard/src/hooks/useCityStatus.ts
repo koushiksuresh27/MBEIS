@@ -18,39 +18,40 @@ export function useCityStatus(scenarioId: string) {
   useEffect(() => {
     async function fetchData() {
       if (!scenarioId) return;
-
       setLoading(true);
       setError(null);
 
       try {
-        const { data: results, error: supaError } = await supabase
-          .from('city_status')
-          .select('day, city, active_cases_p10, active_cases_p50, active_cases_p90, intervention_type')
-          .eq('scenario_id', scenarioId)
-          .order('city', { ascending: true })
-          .order('day', { ascending: true });
-
-        if (supaError) throw supaError;
+        const CITIES = [
+          'Ahmedabad','Bengaluru','Bhopal','Chennai','Delhi',
+          'Guwahati','Hyderabad','Jaipur','Kochi','Kolkata',
+          'Lucknow','Mumbai','Patna','Pune','Visakhapatnam'
+        ];
 
         const grouped: Record<string, Record<string, CityStatus[]>> = {};
 
-        results?.forEach(row => {
-          const cityKey = row.city.toUpperCase();
-          if (!grouped[cityKey]) {
-            grouped[cityKey] = {};
-          }
-          if (!grouped[cityKey][row.intervention_type]) {
-            grouped[cityKey][row.intervention_type] = [];
-          }
+        for (const city of CITIES) {
+          const { data: results, error: supaError } = await supabase
+            .from('city_status')
+            .select('day, city, active_cases_p10, active_cases_p50, active_cases_p90, intervention_type')
+            .eq('scenario_id', scenarioId)
+            .eq('city', city)
+            .order('day', { ascending: true });
 
-          grouped[cityKey][row.intervention_type].push({
-            day: row.day,
-            city: row.city,
-            active_cases_p10: row.active_cases_p10,
-            active_cases_p50: row.active_cases_p50,
-            active_cases_p90: row.active_cases_p90,
+          if (supaError) throw supaError;
+
+          results?.forEach(row => {
+            if (!grouped[row.city]) grouped[row.city] = {};
+            if (!grouped[row.city][row.intervention_type]) grouped[row.city][row.intervention_type] = [];
+            grouped[row.city][row.intervention_type].push({
+              day: row.day,
+              city: row.city,
+              active_cases_p10: row.active_cases_p10,
+              active_cases_p50: row.active_cases_p50,
+              active_cases_p90: row.active_cases_p90,
+            });
           });
-        });
+        }
 
         setData(grouped);
       } catch (err: any) {

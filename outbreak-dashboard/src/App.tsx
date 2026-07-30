@@ -25,7 +25,7 @@ function App() {
     window.dispatchEvent(new CustomEvent('simulation-complete'));
   };
 
-  const { data: cityData } = useCityStatus(SCENARIO_ID);
+  const { data: cityData, loading: cityLoading } = useCityStatus(SCENARIO_ID);
 
   useEffect(() => {
     if (isDark) {
@@ -118,6 +118,11 @@ function App() {
           <PlannerView />
         ) : view === 'map' ? (
           <div className="w-full h-full">
+            {cityLoading ? (
+              <div className="flex items-center justify-center h-full font-mono text-on-surface-variant">
+                Loading city data...
+              </div>
+            ) : (
             <BubbleMap
               cityData={cityData || {}}
               activeIntervention={mapIntervention}
@@ -125,6 +130,7 @@ function App() {
               onDayChange={setMapDay}
               onInterventionChange={setMapIntervention}
             />
+            )}
           </div>
         ) : (
           <AnalystView />

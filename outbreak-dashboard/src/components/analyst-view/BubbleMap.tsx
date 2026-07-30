@@ -15,14 +15,16 @@ const INTERVENTIONS = [
   { key: 'none', label: 'Baseline', color: '#C62828' },
   { key: 'rail_only', label: 'Transit Halt', color: '#F57F17' },
   { key: 'partial', label: 'Partial Lockdown', color: '#2E4A8C' },
-  { key: 'full', label: 'Full Quarantine', color: '#2E7D32' }
+  { key: 'full', label: 'Full Quarantine', color: '#2E7D32' },
+  { key: 'custom_phase_1', label: 'Custom Plan', color: '#7C3AED' }
 ];
 
 const INTERVENTION_LABELS: Record<string, string> = {
   none: 'Baseline',
   rail_only: 'Transit Halt',
   partial: 'Partial Lockdown',
-  full: 'Full Quarantine'
+  full: 'Full Quarantine',
+  custom_phase_1: 'Custom Plan'
 };
 
 const EDGE_COLORS: Record<string, string> = {
@@ -30,6 +32,7 @@ const EDGE_COLORS: Record<string, string> = {
   rail_only: '#F57F17',
   partial: '#2E4A8C',
   full: '#2E7D32',
+  custom_phase_1: '#7C3AED',
 };
 
 const CITIES: Record<string, { lat: number; lng: number; displayName: string; population: number }> = {
@@ -136,8 +139,11 @@ export default function BubbleMap({
     const statsByCity: Record<string, any> = {};
 
     Object.keys(CITIES).forEach((cityKey) => {
-      const cityRows = cityData[cityKey]?.[activeIntervention] ?? [];
-      const row = cityRows.find(r => r.day === simulationDay);
+      const normalizedKey = Object.keys(cityData).find(
+        k => k.toLowerCase() === cityKey.toLowerCase()
+      ) ?? cityKey;
+      const cityRows = cityData[normalizedKey]?.[activeIntervention] ?? [];
+      const row = cityRows.find(r => Number(r.day) === Number(simulationDay));
       const cases = parseFloat(String(row?.active_cases_p50 ?? '0'));
       casesByCity[cityKey] = cases;
       statsByCity[cityKey] = {

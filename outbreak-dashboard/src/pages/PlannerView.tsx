@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useSeirdResults } from '../hooks/useSeirdResults';
 import { useResourceProjections } from '../hooks/useResourceProjections';
 import { useCityStatus } from '../hooks/useCityStatus';
@@ -26,6 +26,57 @@ export default function PlannerView() {
 
   const toggleLine = (key: string) => {
     setActiveLines(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
+  const PHASE_INTERVENTIONS = [
+    { value: 'full',      label: 'Full Quarantine' },
+    { value: 'partial',   label: 'Partial Lockdown' },
+    { value: 'rail_only', label: 'Transit Halt' },
+    { value: 'none',      label: 'No Intervention' },
+  ];
+
+  const [phases, setPhases] = useState([
+    { from_day: 1,  to_day: 60,  intervention: 'full' },
+    { from_day: 61, to_day: 120, intervention: 'partial' },
+    { from_day: 121,to_day: 180, intervention: 'none' },
+  ]);
+  const [planLabel, setPlanLabel] = useState('Custom Plan 1');
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runSuccess, setRunSuccess] = useState<string | null>(null);
+
+  const runPhasedSim = async () => {
+    setRunning(true);
+    setRunError(null);
+    setRunSuccess(null);
+    const label = planLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/v1/simulate-phased`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenario_id: SCENARIO_ID,
+          origin_city: 'THRISSUR',
+          schedule: phases,
+          label,
+          n_iterations: 128,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail ?? 'Simulation failed');
+      }
+      setRunSuccess(`Done — results written as "${label}". Refresh to see the curve.`);
+    } catch (e: any) {
+      setRunError(e.message ?? 'Unknown error');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const updatePhase = (idx: number, field: string, value: string | number) => {
+    setPhases(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p));
   };
 
   const isLoading = seirdLoading || resLoading || !cityData;
@@ -81,8 +132,9 @@ export default function PlannerView() {
       const cityRow: Record<string, any> = { city };
       INTERVENTIONS.forEach(inv => {
         const invArray = cityData[city]?.[inv.key] || [];
-        const day90Obj = invArray.find((d: any) => d.day === 90) || invArray[invArray.length - 1];
-        cityRow[inv.key] = day90Obj ? parseFloat(String(day90Obj.active_cases_p50 ?? '0')) : 0;
+        const sorted = [...invArray].sort((a: any, b: any) => Number(b.day) - Number(a.day));
+        const latest = sorted.find((d: any) => Number(d.day) === 180) ?? sorted[0];
+        cityRow[inv.key] = latest ? parseFloat(String(latest.active_cases_p50 ?? '0')) : 0;
       });
       return cityRow;
     });
@@ -96,7 +148,7 @@ export default function PlannerView() {
   const resourceStats = useMemo(() => {
     if (!resourceData) return { resources: {}, capacityCeiling: 0 };
     const resources: Record<string, { peakOxygen: number, peakICU: number, shortfall: number }> = {};
-    let capacityCeiling = 0;
+    const capacityCeiling = 17000;
 
     INTERVENTIONS.forEach(inv => {
       const invWeeks = resourceData[inv.key] || [];
@@ -104,14 +156,11 @@ export default function PlannerView() {
       let peakICU = 0;
       
       invWeeks.forEach((w: any) => {
-        if (w.projected_oxygen_mt_per_day > peakOxygen) {
-          peakOxygen = w.projected_oxygen_mt_per_day;
+        if (w.oxygen_mt > peakOxygen) {
+          peakOxygen = w.oxygen_mt;
         }
-        if (w.projected_icu_beds_needed > peakICU) {
-          peakICU = w.projected_icu_beds_needed;
-        }
-        if (w.capacity_ceiling_oxygen_mt_per_day > capacityCeiling) {
-          capacityCeiling = w.capacity_ceiling_oxygen_mt_per_day;
+        if (w.icu_beds > peakICU) {
+          peakICU = w.icu_beds;
         }
       });
       
@@ -135,6 +184,83 @@ export default function PlannerView() {
     <div className="flex flex-col h-full bg-background overflow-hidden">
       <main className="flex-1 p-6 space-y-8 max-w-[1440px] mx-auto w-full overflow-y-auto">
         
+        {/* Phase Builder */}
+        <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-on-background font-sans">Custom Intervention Plan</h3>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={planLabel}
+                onChange={e => setPlanLabel(e.target.value)}
+                className="bg-surface border border-outline rounded-lg px-3 py-1.5 text-sm font-mono text-on-surface focus:outline-none focus:ring-1 focus:ring-primary w-48"
+                placeholder="Plan name"
+              />
+              <button
+                onClick={runPhasedSim}
+                disabled={running}
+                className="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-sm font-medium font-sans hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
+              >
+                {running ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Running...
+                  </>
+                ) : 'Run Simulation'}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {phases.map((phase, idx) => (
+              <div key={idx} className="flex items-center gap-3 bg-surface rounded-lg border border-outline p-3">
+                <span className="text-xs font-mono text-on-surface-variant w-16">Phase {idx + 1}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-on-surface-variant font-mono">Day</span>
+                  <input
+                    type="number"
+                    min={1} max={180}
+                    value={phase.from_day}
+                    onChange={e => updatePhase(idx, 'from_day', parseInt(e.target.value))}
+                    className="bg-surface-variant border border-outline rounded px-2 py-1 text-sm font-mono text-on-surface w-16 focus:outline-none"
+                  />
+                  <span className="text-xs text-on-surface-variant font-mono">to</span>
+                  <input
+                    type="number"
+                    min={1} max={180}
+                    value={phase.to_day}
+                    onChange={e => updatePhase(idx, 'to_day', parseInt(e.target.value))}
+                    className="bg-surface-variant border border-outline rounded px-2 py-1 text-sm font-mono text-on-surface w-16 focus:outline-none"
+                  />
+                </div>
+                <select
+                  value={phase.intervention}
+                  onChange={e => updatePhase(idx, 'intervention', e.target.value)}
+                  className="bg-surface-variant border border-outline rounded-lg px-3 py-1.5 text-sm font-mono text-on-surface focus:outline-none flex-1"
+                >
+                  {PHASE_INTERVENTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          {runError && (
+            <div className="mt-3 text-sm font-mono text-[var(--color-status-red)] bg-surface rounded-lg border border-[var(--color-status-red)]/30 px-4 py-2">
+              ⚠ {runError}
+            </div>
+          )}
+          {runSuccess && (
+            <div className="mt-3 text-sm font-mono text-[var(--color-status-green)] bg-surface rounded-lg border border-[var(--color-status-green)]/30 px-4 py-2">
+              ✓ {runSuccess}
+            </div>
+          )}
+        </section>
+
         {/* Section 1: Intervention Selector */}
         <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-wrap gap-2">
           {INTERVENTIONS.map(inv => {
@@ -197,7 +323,7 @@ export default function PlannerView() {
         {/* Section 3: City Status Table */}
         <section className="bg-surface-variant rounded-xl border border-outline shadow-sm overflow-hidden flex flex-col">
           <div className="p-6 border-b border-outline">
-            <h3 className="text-lg font-semibold text-on-background font-sans">Day 90 Active Cases per City</h3>
+            <h3 className="text-lg font-semibold text-on-background font-sans">Day 180 Active Cases per City</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left font-mono text-sm">
@@ -212,7 +338,7 @@ export default function PlannerView() {
               <tbody className="divide-y divide-outline bg-surface/50 text-on-surface">
                 {cityTableData.map(row => (
                   <tr key={row.city} className="hover:bg-surface-container-low transition-colors">
-                    <td className="px-6 py-4 font-medium capitalize">{row.city.toLowerCase()}</td>
+                    <td className="px-6 py-4 font-medium capitalize">{row.city.charAt(0).toUpperCase() + row.city.slice(1).toLowerCase()}</td>
                     {INTERVENTIONS.map(inv => {
                       if (!activeLines[inv.key]) return null;
                       const val = Math.round(row[inv.key]);
