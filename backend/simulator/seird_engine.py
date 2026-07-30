@@ -11,7 +11,8 @@ from backend.simulator.simulator_io import (
     get_latest_pathogen_profile,
     write_seird_results,
     write_city_status,
-    write_resource_projections
+    write_resource_projections,
+    register_intervention_type
 )
 from backend.simulator.resource_calculator import calculate_resource_projections
 
@@ -482,7 +483,300 @@ def run_simulation(
         "seird_results": seird_rows_all,
         "city_status": city_rows_all,
     }
-    
+    # ─────────────────────────────────────────────────────────────────────────────
+# PHASED INTERVENTION RUNNER
+# Add this block to the END of seird_engine.py, after run_simulation().
+#
+# Adds two new functions:
+#   run_phased_mc_iteration() — like run_mc_iteration but resolves W per day
+#   run_phased_simulation()   — like run_simulation but accepts a schedule
+#
+# Zero changes to existing functions. Completely additive.
+#
+# Schedule format:
+#   [
+#       {"from_day": 1,   "to_day": 30,  "intervention": "full"},
+#       {"from_day": 31,  "to_day": 60,  "intervention": "partial"},
+#       {"from_day": 61,  "to_day": 180, "intervention": "none"},
+#   ]
+#
+# from_day and to_day are 1-indexed, inclusive on both ends.
+# Gaps between phases are filled with "none".
+# ─────────────────────────────────────────────────────────────────────────────
 
 
+def _resolve_intervention_for_day(day_1indexed: int, schedule: list[dict]) -> str:
+    """
+    Returns the intervention type that applies on a given day (1-indexed).
+    Falls back to 'none' if the day falls outside all defined phases.
+    """
+    for phase in schedule:
+        if phase["from_day"] <= day_1indexed <= phase["to_day"]:
+            return phase["intervention"]
+    return "none"
 
+
+def run_phased_mc_iteration(
+    names, base_W, edge_types, origin_city, schedule,
+    r0, incubation_days, cfr, infectious_period, rng
+):
+    """
+    Identical to run_mc_iteration except the intervention matrix and
+    local transmission multiplier are resolved per day from a schedule,
+    rather than being fixed for the entire run.
+
+    Returns: (national_infected, national_deaths, national_new_infections, city_active)
+    Same shape as run_mc_iteration — drop-in compatible with run_simulation's
+    aggregation logic.
+    """
+    n = len(names)
+    pops = np.array([CITIES[c]["pop"] for c in names], dtype=float)
+    S = pops.copy()
+    E = np.zeros(n)
+    I = np.zeros(n)
+    R = np.zeros(n)
+    D = np.zeros(n)
+
+    if origin_city in names:
+        origin_idx = names.index(origin_city)
+        seed = 500
+        I[origin_idx] = seed
+        S[origin_idx] -= seed
+    else:
+        raise ValueError(
+            f"run_phased_mc_iteration: origin_city '{origin_city}' not in names. "
+            f"Ensure run_phased_simulation normalized it before calling."
+        )
+
+    beta = r0 / infectious_period
+    sigma = 1.0 / incubation_days
+    gamma = 1.0 / infectious_period
+
+    national_infected = np.zeros(N_DAYS)
+    national_deaths = np.zeros(N_DAYS)
+    national_new_infections = np.zeros(N_DAYS)
+    city_active = np.zeros((N_DAYS, n))
+
+    # Pre-cache W matrices for each unique intervention in the schedule
+    # to avoid recomputing apply_intervention on every day
+    unique_interventions = set(p["intervention"] for p in schedule) | {"none"}
+    W_cache = {
+        inv: apply_intervention(base_W.copy(), edge_types, inv)
+        for inv in unique_interventions
+    }
+
+    for day in range(N_DAYS):
+        day_1indexed = day + 1
+        current_intervention = _resolve_intervention_for_day(day_1indexed, schedule)
+
+        W = W_cache[current_intervention]
+        local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(current_intervention, 1.0)
+
+        import_pressure = W.T @ (I / np.maximum(pops, 1))
+        total_new_infections = calculate_daily_infections(
+            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult
+        )
+
+        new_exposed_to_infectious = sigma * E
+        new_removed = gamma * I
+        new_deaths = new_removed * cfr
+        new_recovered = new_removed * (1 - cfr)
+
+        total_new_infections = np.minimum(total_new_infections, S)
+        new_exposed_to_infectious = np.minimum(new_exposed_to_infectious, E)
+        new_removed = np.minimum(new_removed, I)
+
+        S = S - total_new_infections
+        E = E + total_new_infections - new_exposed_to_infectious
+        I = I + new_exposed_to_infectious - new_removed
+        R = R + new_recovered
+        D = D + new_deaths
+
+        national_infected[day] = I.sum()
+        national_deaths[day] = D.sum()
+        national_new_infections[day] = total_new_infections.sum()
+        city_active[day] = I
+
+    return national_infected, national_deaths, national_new_infections, city_active
+
+
+def run_phased_simulation(
+    scenario_id: str,
+    origin_city: str,
+    schedule: list[dict],
+    label: str,
+    n_iterations: int = 128,
+    meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
+    dgca_path: str = "dgca_annual_weights.csv"
+) -> None:
+    """
+    Runs a phased intervention simulation and writes results to Supabase.
+
+    Parameters:
+        scenario_id:     same scenario UUID as the standard run
+        origin_city:     same origin city string (THRISSUR alias supported)
+        schedule:        list of phase dicts, each with from_day/to_day/intervention
+        label:           intervention_type string written to DB, e.g. "custom_phase_1"
+                         Must be unique — if a row with this label already exists
+                         for this scenario, it will be deleted and rewritten.
+        n_iterations:    MC iterations (default 128, same as standard run)
+        meta_edges_path: path to meta_mobility_edges.csv
+        dgca_path:       path to dgca_annual_weights.csv
+
+    Schedule validation:
+        - from_day must be >= 1
+        - to_day must be <= N_DAYS
+        - intervention must be one of: none, rail_only, partial, full
+        - Phases may not overlap
+        - Days not covered by any phase default to 'none'
+    """
+    # ── Validate schedule ──────────────────────────────────────────────────
+    valid_interventions = {"none", "rail_only", "partial", "full"}
+    for phase in schedule:
+        assert "from_day" in phase and "to_day" in phase and "intervention" in phase, \
+            f"Phase missing required keys (from_day, to_day, intervention): {phase}"
+        assert phase["from_day"] >= 1, \
+            f"from_day must be >= 1, got {phase['from_day']}"
+        assert phase["to_day"] <= N_DAYS, \
+            f"to_day must be <= N_DAYS ({N_DAYS}), got {phase['to_day']}"
+        assert phase["from_day"] <= phase["to_day"], \
+            f"from_day must be <= to_day: {phase}"
+        assert phase["intervention"] in valid_interventions, \
+            f"intervention must be one of {valid_interventions}, got '{phase['intervention']}'"
+
+    # Check for overlapping phases
+    days_covered = []
+    for phase in schedule:
+        days_covered.extend(range(phase["from_day"], phase["to_day"] + 1))
+    assert len(days_covered) == len(set(days_covered)), \
+        "Schedule has overlapping phases — each day must appear in at most one phase"
+
+    # ── Normalize origin city ──────────────────────────────────────────────
+    # Alias resolution must happen before the CITIES lookup.
+    # THRISSUR and THIRUVANANTHAPURAM were removed from CITIES (17→15 node fix).
+    # THRISSUR is aliased to Kochi; THIRUVANANTHAPURAM has no alias.
+    CITY_ALIASES = {"THRISSUR": "Kochi"}
+    origin_city = CITY_ALIASES.get(origin_city.strip().upper(), origin_city)
+
+    names = list(CITIES.keys())
+    matched = next(
+        (c for c in names if c.strip().lower() == origin_city.strip().lower()), None
+    )
+    if matched is None:
+        raise ValueError(
+            f"origin_city '{origin_city}' not found in CITIES. Available: {names}"
+        )
+    origin_city = matched
+    print(f"[phased] origin_city resolved to '{origin_city}'")
+    print(f"[phased] schedule: {schedule}")
+    print(f"[phased] label: '{label}'")
+
+    # ── Load profile and matrix ────────────────────────────────────────────
+    profile = get_latest_pathogen_profile(scenario_id)
+    names, W_composite_base, edge_types = build_composite_matrix(
+        meta_edges_path=meta_edges_path, dgca_path=dgca_path
+    )
+
+    # ── QMC parameter sampling (identical to run_simulation) ──────────────
+    m = int(np.ceil(np.log2(n_iterations)))
+    sampler = qmc.Sobol(d=4, scramble=True, seed=42)
+    uniform_samples = sampler.random_base2(m=m)[:n_iterations]
+
+    def to_triang(u, low, mode, high):
+        scale = high - low
+        if scale == 0:
+            return np.full_like(u, low)
+        c = (mode - low) / scale
+        return triang.ppf(u, c=c, loc=low, scale=scale)
+
+    r0_samples = to_triang(
+        uniform_samples[:, 0],
+        profile["r0_low"], profile["r0_most_likely"], profile["r0_high"]
+    )
+    inc_samples = to_triang(
+        uniform_samples[:, 1],
+        profile["incubation_days_low"], profile["incubation_days_most_likely"],
+        profile["incubation_days_high"]
+    )
+    cfr_samples = to_triang(
+        uniform_samples[:, 2],
+        profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"]
+    )
+    if "infectious_period_most_likely" in profile:
+        inf_samples = to_triang(
+            uniform_samples[:, 3],
+            profile["infectious_period_low"], profile["infectious_period_most_likely"],
+            profile["infectious_period_high"]
+        )
+    else:
+        inf_samples = np.full(n_iterations, 7.0)
+
+    # ── MC loop ────────────────────────────────────────────────────────────
+    print(f"[phased] Running {n_iterations} MC iterations...")
+    all_infected = np.zeros((n_iterations, N_DAYS))
+    all_deaths = np.zeros((n_iterations, N_DAYS))
+    all_new_infections = np.zeros((n_iterations, N_DAYS))
+    all_city_active = np.zeros((n_iterations, N_DAYS, len(names)))
+
+    seed_sequence = np.random.SeedSequence(42)
+    child_seeds = seed_sequence.spawn(n_iterations)
+
+    for it in range(n_iterations):
+        rng = np.random.default_rng(child_seeds[it])
+        inf, dth, new_inf, city_act = run_phased_mc_iteration(
+            names, W_composite_base, edge_types, origin_city, schedule,
+            r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
+            rng
+        )
+        all_infected[it] = inf
+        all_deaths[it] = dth
+        all_new_infections[it] = new_inf
+        all_city_active[it] = city_act
+
+    # ── Assemble rows ──────────────────────────────────────────────────────
+    seird_rows = []
+    city_rows = []
+
+    for day in range(N_DAYS):
+        seird_rows.append({
+            "scenario_id": scenario_id,
+            "pathogen_profile_version": profile["version"],
+            "intervention_type": label,
+            "day": day + 1,
+            "infected_p10": float(np.percentile(all_infected[:, day], 10)),
+            "infected_p50": float(np.percentile(all_infected[:, day], 50)),
+            "infected_p90": float(np.percentile(all_infected[:, day], 90)),
+            "deaths_p10": float(np.percentile(all_deaths[:, day], 10)),
+            "deaths_p50": float(np.percentile(all_deaths[:, day], 50)),
+            "deaths_p90": float(np.percentile(all_deaths[:, day], 90)),
+            "trajectory_sample": all_infected[:, day].tolist(),
+            "new_infections_trajectory_sample": all_new_infections[:, day].tolist(),
+        })
+        for ci, city in enumerate(names):
+            city_rows.append({
+                "scenario_id": scenario_id,
+                "pathogen_profile_version": profile["version"],
+                "intervention_type": label,
+                "city": city,
+                "day": day + 1,
+                "active_cases_p10": float(np.percentile(all_city_active[:, day, ci], 10)),
+                "active_cases_p50": float(np.percentile(all_city_active[:, day, ci], 50)),
+                "active_cases_p90": float(np.percentile(all_city_active[:, day, ci], 90)),
+            })
+
+    # ── Write to Supabase ──────────────────────────────────────────────────
+  # ── Write to Supabase ──────────────────────────────────────────────────
+    register_intervention_type(label)
+    print(f"  [done] intervention_type '{label}' registered in lookup table")
+
+    write_seird_results(seird_rows)
+    print(f"  [done] seird_results written for label='{label}'")
+
+    write_city_status(city_rows)
+    print(f"  [done] city_status written for label='{label}'")
+
+    resource_rows = calculate_resource_projections(city_rows, scenario_id, profile)
+    write_resource_projections(resource_rows)
+    print(f"  [done] resource_projections written for label='{label}'")
+
+    print(f"[phased] Done. Results written as intervention_type='{label}'")

@@ -1,0 +1,211 @@
+source_node_id,target_node_id,haversine_distance_km,normalized_terrestrial_weight,highway_class,nh_numbers,road_class_multiplier,matrix_method
+Delhi,Mumbai,1153.241,0.232503,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Delhi,Kolkata,1317.754,0.057857,primary,NH19,1.15,meta_radiation_nh_adjusted
+Delhi,Bengaluru,1750.115,0.042114,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Delhi,Chennai,1767.651,0.02981,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Delhi,Hyderabad,1266.531,0.062636,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Delhi,Ahmedabad,777.408,0.169256,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Delhi,Pune,1179.482,0.034956,none,none,0.85,meta_radiation_nh_adjusted
+Delhi,Lucknow,430.84,0.113851,trunk,NE3,1.35,meta_radiation_nh_adjusted
+Delhi,Kochi,2089.268,0.005035,none,none,0.85,meta_radiation_nh_adjusted
+Delhi,Jaipur,237.533,0.146783,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Delhi,Patna,866.693,0.036677,primary,NH19,1.15,meta_radiation_nh_adjusted
+Delhi,Visakhapatnam,1374.63,0.005255,none,none,0.85,meta_radiation_nh_adjusted
+Delhi,Bhopal,606.159,0.059908,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Delhi,Guwahati,1471.07,0.003358,primary,NH27,1.15,meta_radiation_nh_adjusted
+Mumbai,Delhi,1153.241,0.09017,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Mumbai,Kolkata,1654.839,0.014737,none,no direct,0.85,meta_radiation_nh_adjusted
+Mumbai,Bengaluru,845.318,0.092559,primary,NH48,1.15,meta_radiation_nh_adjusted
+Mumbai,Chennai,1033.099,0.047894,primary,NH48,1.15,meta_radiation_nh_adjusted
+Mumbai,Hyderabad,621.463,0.13651,primary,NH65,1.15,meta_radiation_nh_adjusted
+Mumbai,Ahmedabad,439.98,0.209238,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Mumbai,Pune,120.152,0.335992,trunk,NH48,1.35,meta_radiation_nh_adjusted
+Mumbai,Lucknow,1194.675,0.004508,none,no direct,0.85,meta_radiation_nh_adjusted
+Mumbai,Kochi,1080.186,0.011784,primary,NH66,1.15,meta_radiation_nh_adjusted
+Mumbai,Jaipur,920.742,0.025098,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Mumbai,Patna,1453.228,0.002972,none,no direct,0.85,meta_radiation_nh_adjusted
+Mumbai,Visakhapatnam,1101.876,0.005404,none,no direct,0.85,meta_radiation_nh_adjusted
+Mumbai,Bhopal,661.362,0.02221,primary,NH44/NH48,1.15,meta_radiation_nh_adjusted
+Mumbai,Guwahati,2086.335,0.000923,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Delhi,1317.754,0.228847,primary,NH19,1.15,meta_radiation_nh_adjusted
+Kolkata,Mumbai,1654.839,0.018283,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Bengaluru,1560.697,0.020664,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Chennai,1358.361,0.031697,primary,NH16,1.15,meta_radiation_nh_adjusted
+Kolkata,Hyderabad,1181.882,0.141364,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Ahmedabad,1618.856,0.0093,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Pune,1575.376,0.009832,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Lucknow,886.984,0.135038,primary,NH19,1.15,meta_radiation_nh_adjusted
+Kolkata,Kochi,1906.416,0.002399,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Jaipur,1357.774,0.010218,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Patna,469.153,0.183014,primary,NH19,1.15,meta_radiation_nh_adjusted
+Kolkata,Visakhapatnam,763.844,0.102776,primary,NH16,1.15,meta_radiation_nh_adjusted
+Kolkata,Bhopal,1123.951,0.04735,none,no direct,0.85,meta_radiation_nh_adjusted
+Kolkata,Guwahati,523.808,0.059219,primary,NH27,1.15,meta_radiation_nh_adjusted
+Bengaluru,Delhi,1750.115,0.034804,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Bengaluru,Mumbai,845.318,0.082304,primary,NH48,1.15,meta_radiation_nh_adjusted
+Bengaluru,Kolkata,1560.697,0.019281,none,no direct,0.85,meta_radiation_nh_adjusted
+Bengaluru,Chennai,290.172,0.543236,trunk,NE7,1.35,meta_radiation_nh_adjusted
+Bengaluru,Hyderabad,499.993,0.155766,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Bengaluru,Ahmedabad,1237.045,0.014141,none,no direct,0.85,meta_radiation_nh_adjusted
+Bengaluru,Pune,735.227,0.056761,primary,NH48,1.15,meta_radiation_nh_adjusted
+Bengaluru,Lucknow,1581.866,0.003623,none,no direct,0.85,meta_radiation_nh_adjusted
+Bengaluru,Kochi,367.715,0.065411,primary,NH544,1.15,meta_radiation_nh_adjusted
+Bengaluru,Jaipur,1561.536,0.004096,none,no direct,0.85,meta_radiation_nh_adjusted
+Bengaluru,Patna,1610.334,0.002365,none,no direct,0.85,meta_radiation_nh_adjusted
+Bengaluru,Visakhapatnam,798.972,0.013089,primary,NH44/NH16,1.15,meta_radiation_nh_adjusted
+Bengaluru,Bhopal,1144.168,0.004591,none,no direct,0.85,meta_radiation_nh_adjusted
+Bengaluru,Guwahati,2080.015,0.000532,none,no direct,0.85,meta_radiation_nh_adjusted
+Chennai,Delhi,1767.651,0.029559,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Chennai,Mumbai,1033.099,0.069901,primary,NH48,1.15,meta_radiation_nh_adjusted
+Chennai,Kolkata,1358.361,0.027156,primary,NH16,1.15,meta_radiation_nh_adjusted
+Chennai,Bengaluru,290.172,0.624582,trunk,NE7,1.35,meta_radiation_nh_adjusted
+Chennai,Hyderabad,515.242,0.140565,primary,NH44,1.15,meta_radiation_nh_adjusted
+Chennai,Ahmedabad,1371.809,0.008314,none,no direct,0.85,meta_radiation_nh_adjusted
+Chennai,Pune,914.365,0.043458,primary,NH48,1.15,meta_radiation_nh_adjusted
+Chennai,Lucknow,1532.103,0.003161,none,no direct,0.85,meta_radiation_nh_adjusted
+Chennai,Kochi,559.486,0.027683,primary,NH544/NH44,1.15,meta_radiation_nh_adjusted
+Chennai,Jaipur,1607.099,0.003055,none,no direct,0.85,meta_radiation_nh_adjusted
+Chennai,Patna,1481.474,0.00235,none,no direct,0.85,meta_radiation_nh_adjusted
+Chennai,Visakhapatnam,601.586,0.015866,primary,NH16,1.15,meta_radiation_nh_adjusted
+Chennai,Bhopal,1171.109,0.003899,none,no direct,0.85,meta_radiation_nh_adjusted
+Chennai,Guwahati,1882.161,0.000452,none,no direct,0.85,meta_radiation_nh_adjusted
+Hyderabad,Delhi,1266.531,0.028396,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Hyderabad,Mumbai,621.463,0.075829,primary,NH65,1.15,meta_radiation_nh_adjusted
+Hyderabad,Kolkata,1181.882,0.01251,none,no direct,0.85,meta_radiation_nh_adjusted
+Hyderabad,Bengaluru,499.993,0.636599,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Hyderabad,Chennai,515.242,0.078848,primary,NH44,1.15,meta_radiation_nh_adjusted
+Hyderabad,Ahmedabad,879.498,0.011538,none,no direct,0.85,meta_radiation_nh_adjusted
+Hyderabad,Pune,505.754,0.093224,primary,NH65,1.15,meta_radiation_nh_adjusted
+Hyderabad,Lucknow,1082.069,0.004513,none,no direct,0.85,meta_radiation_nh_adjusted
+Hyderabad,Kochi,862.764,0.007278,primary,NH544/NH44,1.15,meta_radiation_nh_adjusted
+Hyderabad,Jaipur,1095.147,0.00429,none,no direct,0.85,meta_radiation_nh_adjusted
+Hyderabad,Patna,1142.583,0.002647,none,no direct,0.85,meta_radiation_nh_adjusted
+Hyderabad,Visakhapatnam,502.808,0.038307,primary,NH16/NH65,1.15,meta_radiation_nh_adjusted
+Hyderabad,Bhopal,662.779,0.005586,primary,NH44,1.15,meta_radiation_nh_adjusted
+Hyderabad,Guwahati,1677.577,0.000434,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Delhi,777.408,0.091513,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Ahmedabad,Mumbai,439.98,0.777068,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Ahmedabad,Kolkata,1618.856,0.00508,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Bengaluru,1237.045,0.007805,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Chennai,1371.809,0.004864,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Hyderabad,879.498,0.009131,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Pune,518.126,0.055719,trunk,NH48,1.35,meta_radiation_nh_adjusted
+Ahmedabad,Lucknow,945.108,0.003728,primary,NH27,1.15,meta_radiation_nh_adjusted
+Ahmedabad,Kochi,1507.803,0.001285,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Jaipur,540.468,0.021409,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Ahmedabad,Patna,1304.537,0.001318,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Visakhapatnam,1257.923,0.001144,none,no direct,0.85,meta_radiation_nh_adjusted
+Ahmedabad,Bhopal,495.684,0.019619,primary,NH47,1.15,meta_radiation_nh_adjusted
+Ahmedabad,Guwahati,1966.774,0.000318,none,no direct,0.85,meta_radiation_nh_adjusted
+Pune,Delhi,1179.482,0.016685,none,none,0.85,meta_radiation_nh_adjusted
+Pune,Mumbai,120.152,0.806259,trunk,NH48,1.35,meta_radiation_nh_adjusted
+Pune,Kolkata,1575.376,0.004678,none,no direct,0.85,meta_radiation_nh_adjusted
+Pune,Bengaluru,735.227,0.029382,primary,NH48,1.15,meta_radiation_nh_adjusted
+Pune,Chennai,914.365,0.017045,primary,NH48,1.15,meta_radiation_nh_adjusted
+Pune,Hyderabad,505.754,0.067964,primary,NH65,1.15,meta_radiation_nh_adjusted
+Pune,Ahmedabad,518.126,0.037506,trunk,NH48,1.35,meta_radiation_nh_adjusted
+Pune,Lucknow,1176.727,0.002768,none,no direct,0.85,meta_radiation_nh_adjusted
+Pune,Kochi,989.711,0.002765,none,no direct,0.85,meta_radiation_nh_adjusted
+Pune,Jaipur,953.871,0.004945,primary,NH48,1.15,meta_radiation_nh_adjusted
+Pune,Patna,1402.519,0.000943,none,no direct,0.85,meta_radiation_nh_adjusted
+Pune,Visakhapatnam,993.667,0.001715,none,no direct,0.85,meta_radiation_nh_adjusted
+Pune,Bhopal,643.492,0.00705,primary,NH65/NH44,1.15,meta_radiation_nh_adjusted
+Pune,Guwahati,2022.141,0.000293,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Delhi,430.84,0.93887,trunk,NE3,1.35,meta_radiation_nh_adjusted
+Lucknow,Mumbai,1194.675,0.005156,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Kolkata,886.984,0.018261,primary,NH19,1.15,meta_radiation_nh_adjusted
+Lucknow,Bengaluru,1581.866,0.001941,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Chennai,1532.103,0.002026,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Hyderabad,1082.069,0.004407,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Ahmedabad,945.108,0.006669,primary,NH27,1.15,meta_radiation_nh_adjusted
+Lucknow,Pune,1176.727,0.002515,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Kochi,1944.021,0.000441,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Jaipur,511.683,0.007811,primary,NH27,1.15,meta_radiation_nh_adjusted
+Lucknow,Patna,440.663,0.006137,primary,NH19/NH27,1.15,meta_radiation_nh_adjusted
+Lucknow,Visakhapatnam,1044.945,0.001111,none,no direct,0.85,meta_radiation_nh_adjusted
+Lucknow,Bhopal,534.503,0.003957,primary,NH44,1.15,meta_radiation_nh_adjusted
+Lucknow,Guwahati,1076.285,0.000699,primary,NH27,1.15,meta_radiation_nh_adjusted
+Kochi,Delhi,2089.268,0.005826,none,none,0.85,meta_radiation_nh_adjusted
+Kochi,Mumbai,1080.186,0.023703,primary,NH66,1.15,meta_radiation_nh_adjusted
+Kochi,Kolkata,1906.416,0.004683,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Bengaluru,367.715,0.823464,primary,NH544,1.15,meta_radiation_nh_adjusted
+Kochi,Chennai,559.486,0.085982,primary,NH544/NH44,1.15,meta_radiation_nh_adjusted
+Kochi,Hyderabad,862.764,0.03528,primary,NH544/NH44,1.15,meta_radiation_nh_adjusted
+Kochi,Ahmedabad,1507.803,0.00376,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Pune,989.711,0.011155,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Lucknow,1944.021,0.000963,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Jaipur,1888.896,0.001533,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Patna,1976.924,0.000629,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Visakhapatnam,1142.824,0.00166,primary,NH544/NH16,1.15,meta_radiation_nh_adjusted
+Kochi,Bhopal,1487.072,0.001221,none,no direct,0.85,meta_radiation_nh_adjusted
+Kochi,Guwahati,2428.985,0.000141,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Delhi,237.533,0.929735,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Jaipur,Mumbai,920.742,0.023057,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Jaipur,Kolkata,1357.774,0.003726,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Bengaluru,1561.536,0.002457,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Chennai,1607.099,0.001708,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Hyderabad,1095.147,0.003589,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Ahmedabad,540.468,0.015402,trunk,NE4,1.35,meta_radiation_nh_adjusted
+Jaipur,Pune,953.871,0.004304,primary,NH48,1.15,meta_radiation_nh_adjusted
+Jaipur,Lucknow,511.683,0.007856,primary,NH27,1.15,meta_radiation_nh_adjusted
+Jaipur,Kochi,1888.896,0.000458,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Patna,943.674,0.00127,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Visakhapatnam,1278.596,0.000643,none,no direct,0.85,meta_radiation_nh_adjusted
+Jaipur,Bhopal,437.863,0.005613,primary,NH46,1.15,meta_radiation_nh_adjusted
+Jaipur,Guwahati,1587.965,0.000181,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Delhi,866.693,0.062446,primary,NH19,1.15,meta_radiation_nh_adjusted
+Patna,Mumbai,1453.228,0.004143,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Kolkata,469.153,0.295838,primary,NH19,1.15,meta_radiation_nh_adjusted
+Patna,Bengaluru,1610.334,0.00156,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Chennai,1481.474,0.001628,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Hyderabad,1142.583,0.004443,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Ahmedabad,1304.537,0.00269,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Pune,1402.519,0.002021,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Lucknow,440.663,0.607203,primary,NH19/NH27,1.15,meta_radiation_nh_adjusted
+Patna,Kochi,1976.924,0.000354,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Jaipur,943.674,0.002068,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Visakhapatnam,901.296,0.001264,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Bhopal,823.857,0.008351,none,no direct,0.85,meta_radiation_nh_adjusted
+Patna,Guwahati,662.962,0.005989,primary,NH27,1.15,meta_radiation_nh_adjusted
+Visakhapatnam,Delhi,1374.63,0.003758,none,none,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Mumbai,1101.876,0.005702,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Kolkata,763.844,0.036487,primary,NH16,1.15,meta_radiation_nh_adjusted
+Visakhapatnam,Bengaluru,798.972,0.014326,primary,NH44/NH16,1.15,meta_radiation_nh_adjusted
+Visakhapatnam,Chennai,601.586,0.081279,primary,NH16,1.15,meta_radiation_nh_adjusted
+Visakhapatnam,Hyderabad,502.808,0.847567,primary,NH16/NH65,1.15,meta_radiation_nh_adjusted
+Visakhapatnam,Ahmedabad,1257.923,0.001487,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Pune,993.667,0.003442,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Lucknow,1044.945,0.001442,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Kochi,1142.824,0.000905,primary,NH544/NH16,1.15,meta_radiation_nh_adjusted
+Visakhapatnam,Jaipur,1278.596,0.000628,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Patna,901.296,0.001432,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Bhopal,865.664,0.001384,none,no direct,0.85,meta_radiation_nh_adjusted
+Visakhapatnam,Guwahati,1286.176,0.000161,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Delhi,606.159,0.096085,trunk,NH44,1.35,meta_radiation_nh_adjusted
+Bhopal,Mumbai,661.362,0.010319,primary,NH44/NH48,1.15,meta_radiation_nh_adjusted
+Bhopal,Kolkata,1123.951,0.00248,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Bengaluru,1144.168,0.001635,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Chennai,1171.109,0.001155,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Hyderabad,662.779,0.003435,primary,NH44,1.15,meta_radiation_nh_adjusted
+Bhopal,Ahmedabad,495.684,0.211346,primary,NH47,1.15,meta_radiation_nh_adjusted
+Bhopal,Pune,643.492,0.005817,primary,NH65/NH44,1.15,meta_radiation_nh_adjusted
+Bhopal,Lucknow,534.503,0.033155,primary,NH44,1.15,meta_radiation_nh_adjusted
+Bhopal,Kochi,1487.072,0.000305,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Jaipur,437.863,0.633193,primary,NH46,1.15,meta_radiation_nh_adjusted
+Bhopal,Patna,823.857,0.000544,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Visakhapatnam,865.664,0.000428,none,no direct,0.85,meta_radiation_nh_adjusted
+Bhopal,Guwahati,1481.201,0.000102,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Delhi,1471.07,0.024946,primary,NH27,1.15,meta_radiation_nh_adjusted
+Guwahati,Mumbai,2086.335,0.001071,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Kolkata,523.808,0.944769,primary,NH27,1.15,meta_radiation_nh_adjusted
+Guwahati,Bengaluru,2080.015,0.00088,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Chennai,1882.161,0.001372,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Hyderabad,1677.577,0.001761,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Ahmedabad,1966.774,0.00082,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Pune,2022.141,0.00063,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Lucknow,1076.285,0.009689,primary,NH27,1.15,meta_radiation_nh_adjusted
+Guwahati,Kochi,2428.985,0.00014,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Jaipur,1587.965,0.00082,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Patna,662.962,0.009438,primary,NH27,1.15,meta_radiation_nh_adjusted
+Guwahati,Visakhapatnam,1286.176,0.003131,none,no direct,0.85,meta_radiation_nh_adjusted
+Guwahati,Bhopal,1481.201,0.000534,none,no direct,0.85,meta_radiation_nh_adjusted

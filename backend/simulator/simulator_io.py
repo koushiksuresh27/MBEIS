@@ -168,3 +168,11 @@ def write_all_results(pipeline_output: dict, resource_rows: list[dict]) -> None:
         sorted_rr = sorted(resource_rows, key=itemgetter("intervention_type"))
         for inv_type, group in groupby(sorted_rr, key=itemgetter("intervention_type")):
             write_resource_projections(list(group))
+
+
+def register_intervention_type(label: str) -> None:
+    """Inserts label into intervention_types lookup table. Idempotent."""
+    supabase = get_client()
+    supabase.table("intervention_types") \
+        .upsert({"key": label}, on_conflict="key") \
+        .execute()
