@@ -68,6 +68,9 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
   const [runSuccess, setRunSuccess] = useState<string | null>(null);
   const [isCityTableOpen, setIsCityTableOpen] = useState(false);
   const [expandedResCards, setExpandedResCards] = useState<Record<string, boolean>>({});
+  const [compareA, setCompareA] = useState<string | null>(null);
+  const [compareB, setCompareB] = useState<string | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
 
   const runPhasedSim = async () => {
     setRunning(true);
@@ -207,82 +210,247 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
     <div className="flex flex-col h-full bg-background overflow-hidden">
       <main className="flex-1 p-6 space-y-8 max-w-[1440px] mx-auto w-full overflow-y-auto">
 
-        {/* Phase Builder */}
-        <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-on-background font-sans">Custom Intervention Plan</h3>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={planLabel}
-                onChange={e => setPlanLabel(e.target.value)}
-                className="bg-surface border border-outline rounded-lg px-3 py-1.5 text-sm font-mono text-on-surface focus:outline-none focus:ring-1 focus:ring-primary w-48"
-                placeholder="Plan name"
-              />
-              <button
-                onClick={runPhasedSim}
-                disabled={running}
-                className="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-sm font-medium font-sans hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
-              >
-                {running ? (
-                  <>
-                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                    Running...
-                  </>
-                ) : 'Run Simulation'}
-              </button>
-            </div>
-          </div>
+        {/* Phase Builder + Saved Plans — two column layout */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
 
-          <div className="rounded-xl border border-outline overflow-hidden">
-            {phases.map((phase, idx) => (
-              <div key={idx} className={`flex items-center gap-3 bg-surface py-3 px-4 ${idx !== phases.length - 1 ? 'border-b border-outline' : ''}`}>
-                <span className="text-xs font-mono text-on-surface-variant w-16">Phase {idx + 1}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-on-surface-variant font-mono">Day</span>
+          {/* LEFT: Phase Builder (compact) */}
+          <div className="bg-surface-variant rounded-xl border border-outline p-4 shadow-sm flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-on-background font-sans">Custom Intervention Plan</h3>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={planLabel}
+                  onChange={e => setPlanLabel(e.target.value)}
+                  className="bg-surface border border-outline rounded-lg px-2 py-1 text-xs font-mono text-on-surface focus:outline-none focus:ring-1 focus:ring-primary w-36"
+                  placeholder="Plan name"
+                />
+                <button
+                  onClick={runPhasedSim}
+                  disabled={running}
+                  className="bg-primary text-on-primary px-3 py-1 rounded-lg text-xs font-medium font-sans hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+                >
+                  {running ? (
+                    <>
+                      <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      Running...
+                    </>
+                  ) : 'Run'}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-outline overflow-hidden">
+              {phases.map((phase, idx) => (
+                <div key={idx} className={`flex items-center gap-2 bg-surface py-2 px-3 ${idx !== phases.length - 1 ? 'border-b border-outline' : ''}`}>
+                  <span className="text-xs font-mono text-on-surface-variant w-14 shrink-0">Phase {idx + 1}</span>
+                  <span className="text-xs text-on-surface-variant font-mono shrink-0">Day</span>
                   <input
                     type="number"
                     min={1} max={180}
                     value={phase.from_day}
                     onChange={e => updatePhase(idx, 'from_day', parseInt(e.target.value))}
-                    className="bg-surface-variant border border-outline rounded px-2 py-1 text-sm font-mono text-on-surface w-16 focus:outline-none"
+                    className="bg-surface-variant border border-outline rounded px-1.5 py-0.5 text-xs font-mono text-on-surface w-14 focus:outline-none"
                   />
-                  <span className="text-xs text-on-surface-variant font-mono">to</span>
+                  <span className="text-xs text-on-surface-variant font-mono shrink-0">to</span>
                   <input
                     type="number"
                     min={1} max={180}
                     value={phase.to_day}
                     onChange={e => updatePhase(idx, 'to_day', parseInt(e.target.value))}
-                    className="bg-surface-variant border border-outline rounded px-2 py-1 text-sm font-mono text-on-surface w-16 focus:outline-none"
+                    className="bg-surface-variant border border-outline rounded px-1.5 py-0.5 text-xs font-mono text-on-surface w-14 focus:outline-none"
                   />
+                  <select
+                    value={phase.intervention}
+                    onChange={e => updatePhase(idx, 'intervention', e.target.value)}
+                    className="bg-surface-variant border border-outline rounded px-2 py-0.5 text-xs font-mono text-on-surface focus:outline-none flex-1"
+                  >
+                    {PHASE_INTERVENTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  value={phase.intervention}
-                  onChange={e => updatePhase(idx, 'intervention', e.target.value)}
-                  className="bg-surface-variant border border-outline rounded-lg px-2 py-1.5 text-sm font-mono text-on-surface focus:outline-none flex-1"
-                >
-                  {PHASE_INTERVENTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+              ))}
+            </div>
+
+            {runError && (
+              <div className="text-xs font-mono text-[var(--color-status-red)] bg-surface rounded-lg border border-[var(--color-status-red)]/30 px-3 py-1.5">
+                ⚠ {runError}
               </div>
-            ))}
+            )}
+            {runSuccess && (
+              <div className="text-xs font-mono text-[var(--color-status-green)] bg-surface rounded-lg border border-[var(--color-status-green)]/30 px-3 py-1.5">
+                ✓ {runSuccess}
+              </div>
+            )}
           </div>
 
-          {runError && (
-            <div className="mt-3 text-sm font-mono text-[var(--color-status-red)] bg-surface rounded-lg border border-[var(--color-status-red)]/30 px-4 py-2">
-              ⚠ {runError}
-            </div>
-          )}
-          {runSuccess && (
-            <div className="mt-3 text-sm font-mono text-[var(--color-status-green)] bg-surface rounded-lg border border-[var(--color-status-green)]/30 px-4 py-2">
-              ✓ {runSuccess}
-            </div>
-          )}
+          {/* RIGHT: Saved Custom Plans + Compare */}
+          <div className="bg-surface-variant rounded-xl border border-outline p-4 shadow-sm flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-on-background font-sans">Saved Custom Plans</h3>
+
+            {(() => {
+              const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+              const customPlans = dynamicInterventions.filter(inv => !standardKeys.has(inv.key));
+
+              if (customPlans.length === 0) {
+                return (
+                  <p className="text-xs font-mono text-on-surface-variant opacity-60 italic mt-2">
+                    No custom plans yet. Run a simulation to save one.
+                  </p>
+                );
+              }
+
+              return (
+                <div className="flex flex-col gap-2">
+                  {customPlans.map(plan => {
+                    const stat = nationalStats[plan.key];
+                    const isSelectedA = compareA === plan.key;
+                    const isSelectedB = compareB === plan.key;
+                    return (
+                      <div key={plan.key} className="flex items-center justify-between bg-surface rounded-lg border border-outline px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: plan.color }}></span>
+                          <span className="font-mono text-xs text-on-surface font-medium">{plan.label}</span>
+                          {stat && (
+                            <span className="font-mono text-xs text-on-surface-variant">
+                              · peak {Math.round(stat.peakInfections).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setCompareA(isSelectedA ? null : plan.key)}
+                            className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${isSelectedA ? 'bg-primary text-on-primary border-primary' : 'bg-surface-variant border-outline text-on-surface-variant hover:border-primary hover:text-primary'}`}
+                          >
+                            A
+                          </button>
+                          <button
+                            onClick={() => setCompareB(isSelectedB ? null : plan.key)}
+                            className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${isSelectedB ? 'bg-primary text-on-primary border-primary' : 'bg-surface-variant border-outline text-on-surface-variant hover:border-primary hover:text-primary'}`}
+                          >
+                            B
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {compareA && compareB && (
+                    <button
+                      onClick={() => setShowCompare(true)}
+                      className="mt-1 w-full bg-primary text-on-primary py-1.5 rounded-lg text-xs font-mono font-medium hover:opacity-90 transition-opacity"
+                    >
+                      Compare A vs B →
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         </section>
+
+        {/* Compare Modal */}
+        {showCompare && compareA && compareB && (() => {
+          const planA = dynamicInterventions.find(i => i.key === compareA)!;
+          const planB = dynamicInterventions.find(i => i.key === compareB)!;
+          const statA = nationalStats[compareA];
+          const statB = nationalStats[compareB];
+          const resA = resourceStats.resources[compareA];
+          const resB = resourceStats.resources[compareB];
+          const baselineStat = nationalStats['none'];
+
+          const deathsSavedA = baselineStat ? Math.round(baselineStat.day90Deaths - (statA?.day90Deaths ?? 0)) : 0;
+          const deathsSavedB = baselineStat ? Math.round(baselineStat.day90Deaths - (statB?.day90Deaths ?? 0)) : 0;
+          const peakDelayA = baselineStat ? (statA?.peakDay ?? 0) - baselineStat.peakDay : 0;
+          const peakDelayB = baselineStat ? (statB?.peakDay ?? 0) - baselineStat.peakDay : 0;
+
+          const rows = [
+            {
+              label: 'Peak Active Cases',
+              a: Math.round(statA?.peakInfections ?? 0).toLocaleString(),
+              b: Math.round(statB?.peakInfections ?? 0).toLocaleString(),
+              better: (statA?.peakInfections ?? 0) < (statB?.peakInfections ?? 0) ? 'a' : 'b',
+            },
+            {
+              label: 'Peak Day',
+              a: `Day ${statA?.peakDay ?? 0}`,
+              b: `Day ${statB?.peakDay ?? 0}`,
+              better: (statA?.peakDay ?? 0) > (statB?.peakDay ?? 0) ? 'a' : 'b',
+            },
+            {
+              label: 'Deaths by Day 90',
+              a: Math.round(statA?.day90Deaths ?? 0).toLocaleString(),
+              b: Math.round(statB?.day90Deaths ?? 0).toLocaleString(),
+              better: (statA?.day90Deaths ?? 0) < (statB?.day90Deaths ?? 0) ? 'a' : 'b',
+            },
+            {
+              label: 'Peak Oxygen (MT/day)',
+              a: Math.round(resA?.peakOxygen ?? 0).toLocaleString(),
+              b: Math.round(resB?.peakOxygen ?? 0).toLocaleString(),
+              better: (resA?.peakOxygen ?? 0) < (resB?.peakOxygen ?? 0) ? 'a' : 'b',
+            },
+            {
+              label: 'Deaths Saved vs Baseline',
+              a: deathsSavedA.toLocaleString(),
+              b: deathsSavedB.toLocaleString(),
+              better: deathsSavedA > deathsSavedB ? 'a' : 'b',
+            },
+            {
+              label: 'Peak Delay vs Baseline',
+              a: `${peakDelayA > 0 ? '+' : ''}${peakDelayA} days`,
+              b: `${peakDelayB > 0 ? '+' : ''}${peakDelayB} days`,
+              better: peakDelayA > peakDelayB ? 'a' : 'b',
+            },
+          ];
+
+          return (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setShowCompare(false)}>
+              <div className="bg-surface rounded-2xl border border-outline shadow-2xl p-6 w-full max-w-lg"
+                onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="font-sans font-semibold text-on-background">Plan Comparison</h3>
+                  <button onClick={() => setShowCompare(false)}
+                    className="text-on-surface-variant hover:text-on-background text-lg leading-none">×</button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="text-xs font-mono text-on-surface-variant uppercase">Metric</div>
+                  <div className="flex items-center gap-1.5 text-xs font-mono font-semibold">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: planA.color }}></span>
+                    {planA.label}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs font-mono font-semibold">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: planB.color }}></span>
+                    {planB.label}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  {rows.map((row, idx) => (
+                    <div key={idx} className={`grid grid-cols-3 gap-2 py-2 px-2 rounded-lg ${idx % 2 === 0 ? 'bg-surface-variant' : ''}`}>
+                      <span className="text-xs font-mono text-on-surface-variant">{row.label}</span>
+                      <span className={`text-xs font-mono font-semibold ${row.better === 'a' ? 'text-[var(--color-status-green)]' : 'text-on-surface'}`}>
+                        {row.a}
+                      </span>
+                      <span className={`text-xs font-mono font-semibold ${row.better === 'b' ? 'text-[var(--color-status-green)]' : 'text-on-surface'}`}>
+                        {row.b}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-xs font-mono text-on-surface-variant opacity-60 mt-4 text-center">
+                  Green values indicate the better performing plan for each metric
+                </p>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Section 1: Intervention Selector */}
         <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-wrap gap-2">
