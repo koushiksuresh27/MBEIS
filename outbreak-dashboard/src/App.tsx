@@ -3,6 +3,7 @@ import AnalystView from './pages/AnalystView';
 import PlannerView from './pages/PlannerView';
 import BubbleMap from './components/analyst-view/BubbleMap';
 import { useCityStatus } from './hooks/useCityStatus';
+import { useResourceProjections } from './hooks/useResourceProjections';
 import SetupModal from './components/SetupModal';
 import type { ScenarioConfig } from './types/scenario';
 
@@ -11,7 +12,7 @@ const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
 function App() {
   const [view, setView] = useState<'planner' | 'analyst' | 'map'>('analyst');
   const [isDark, setIsDark] = useState(false);
-  const [mapDay, setMapDay] = useState(180);
+  const [mapDay, setMapDay] = useState(1);
   const [mapIntervention, setMapIntervention] = useState('none');
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -26,6 +27,7 @@ function App() {
   };
 
   const { data: cityData, loading: cityLoading } = useCityStatus(SCENARIO_ID);
+  const { cityData: resourceCityData } = useResourceProjections(SCENARIO_ID);
 
   useEffect(() => {
     if (isDark) {
@@ -115,7 +117,7 @@ function App() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative">
         {view === 'planner' ? (
-          <PlannerView />
+          <PlannerView scenarioConfig={scenarioConfig} />
         ) : view === 'map' ? (
           <div className="w-full h-full">
             {cityLoading ? (
@@ -125,6 +127,7 @@ function App() {
             ) : (
             <BubbleMap
               cityData={cityData || {}}
+              resourceData={resourceCityData || {}}
               activeIntervention={mapIntervention}
               simulationDay={mapDay}
               onDayChange={setMapDay}

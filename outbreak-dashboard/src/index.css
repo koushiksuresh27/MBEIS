@@ -12,13 +12,13 @@
   --color-tertiary-fixed-dim: #ffb876;
   --color-primary-fixed-dim: #b2c5ff;
   --color-outline-variant: #D1CEC5;
-  --color-surface: #EFECE4;
+  --color-surface: #F9F9FB;
   --color-primary: #2E4A8C;
   --color-surface-container-high: #e9e7ee;
   --color-surface-dim: #8C887E;
   --color-tertiary-fixed: #ffdcc0;
   --color-secondary-container: #e8e2d6;
-  --color-background: #EFECE4;
+  --color-background: #F9F9FB;
   --color-secondary-fixed: #e8e2d6;
   --color-on-tertiary-container: #f8ae69;
   --color-surface-tint: #415c9f;
@@ -65,7 +65,7 @@
 
   --font-sans: "Public Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
-  
+
   --font-label-sm: "JetBrains Mono", monospace;
   --font-display-lg: "Public Sans", sans-serif;
   --font-headline-lg: "Public Sans", sans-serif;
@@ -76,7 +76,7 @@
 
 @layer base {
   @import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-  
+
   body {
     @apply bg-background text-on-background font-sans antialiased;
   }
@@ -84,13 +84,13 @@
 
 /* Dark mode overrides */
 [data-theme="dark"] {
-  --color-background:        #1A1814;
-  --color-surface:           #242018;
-  --color-surface-variant:   #2C2820;
+  --color-background: #1A1814;
+  --color-surface: #242018;
+  --color-surface-variant: #2C2820;
   --color-surface-container-low: #221F1B;
-  --color-outline:           #3D3830;
-  --color-on-background:     #EDE9E0;
-  --color-on-surface:        #EDE9E0;
-  --color-on-surface-variant:#9E9A92;
-  --color-primary:           #4A6FBE;
+  --color-outline: #3D3830;
+  --color-on-background: #EDE9E0;
+  --color-on-surface: #EDE9E0;
+  --color-on-surface-variant: #9E9A92;
+  --color-primary: #4A6FBE;
 }

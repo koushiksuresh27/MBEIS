@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import type { ScenarioConfig } from '../types/scenario';
 import { useSeirdResults } from '../hooks/useSeirdResults';
 import { useResourceProjections } from '../hooks/useResourceProjections';
 import { useCityStatus } from '../hooks/useCityStatus';
@@ -12,9 +13,9 @@ const INTERVENTIONS = [
   { key: 'full', label: 'Full Quarantine', color: 'var(--color-status-green)' }
 ];
 
-export default function PlannerView() {
+export default function PlannerView({ scenarioConfig }: { scenarioConfig: ScenarioConfig | null }) {
   const { data: seirdData, loading: seirdLoading, error: seirdError } = useSeirdResults(SCENARIO_ID);
-  const { data: resourceData, loading: resLoading, error: resError } = useResourceProjections(SCENARIO_ID);
+  const { data: resourceData, cityData: resourceCityData, loading: resLoading, error: resError } = useResourceProjections(SCENARIO_ID);
   const { data: cityData, error: cityError } = useCityStatus(SCENARIO_ID);
 
   const [activeLines, setActiveLines] = useState<Record<string, boolean>>({
@@ -24,27 +25,49 @@ export default function PlannerView() {
     full: true
   });
 
+  useEffect(() => {
+    if (!seirdData) return;
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const customKeys = Object.keys(seirdData).filter(k => !standardKeys.has(k));
+    customKeys.forEach(k => {
+      setActiveLines(prev => prev[k] === undefined ? { ...prev, [k]: true } : prev);
+    });
+  }, [seirdData]);
+
+  const dynamicInterventions = useMemo(() => {
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const customKeys = Object.keys(seirdData || {}).filter(k => !standardKeys.has(k));
+    const customEntries = customKeys.map(k => ({
+      key: k,
+      label: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      color: '#7C3AED'
+    }));
+    return [...INTERVENTIONS, ...customEntries];
+  }, [seirdData]);
+
   const toggleLine = (key: string) => {
     setActiveLines(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
   const PHASE_INTERVENTIONS = [
-    { value: 'full',      label: 'Full Quarantine' },
-    { value: 'partial',   label: 'Partial Lockdown' },
+    { value: 'full', label: 'Full Quarantine' },
+    { value: 'partial', label: 'Partial Lockdown' },
     { value: 'rail_only', label: 'Transit Halt' },
-    { value: 'none',      label: 'No Intervention' },
+    { value: 'none', label: 'No Intervention' },
   ];
 
   const [phases, setPhases] = useState([
-    { from_day: 1,  to_day: 60,  intervention: 'full' },
+    { from_day: 1, to_day: 60, intervention: 'full' },
     { from_day: 61, to_day: 120, intervention: 'partial' },
-    { from_day: 121,to_day: 180, intervention: 'none' },
+    { from_day: 121, to_day: 180, intervention: 'none' },
   ]);
   const [planLabel, setPlanLabel] = useState('Custom Plan 1');
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runSuccess, setRunSuccess] = useState<string | null>(null);
+  const [isCityTableOpen, setIsCityTableOpen] = useState(false);
+  const [expandedResCards, setExpandedResCards] = useState<Record<string, boolean>>({});
 
   const runPhasedSim = async () => {
     setRunning(true);
@@ -56,11 +79,11 @@ export default function PlannerView() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          scenario_id: SCENARIO_ID,
-          origin_city: 'THRISSUR',
+          scenario_id: scenarioConfig?.scenarioId ?? SCENARIO_ID,
+          origin_city: scenarioConfig?.originCity ?? 'THRISSUR',
           schedule: phases,
           label,
-          n_iterations: 128,
+          n_iterations: scenarioConfig?.nIterations ?? 128,
         }),
       });
       if (!res.ok) {
@@ -87,12 +110,12 @@ export default function PlannerView() {
     if (!seirdData) return {};
     const stats: Record<string, { peakInfections: number, peakDay: number, day90Deaths: number, verdict: string }> = {};
 
-    INTERVENTIONS.forEach(inv => {
+    dynamicInterventions.forEach(inv => {
       const invData = seirdData[inv.key] || [];
       let peakInfections = 0;
       let peakDay = 0;
       let day90Deaths = 0;
-      
+
       invData.forEach(d => {
         if (d.infected_p50 > peakInfections) {
           peakInfections = d.infected_p50;
@@ -102,12 +125,12 @@ export default function PlannerView() {
           day90Deaths = d.deaths_p50;
         }
       });
-      
+
       // Fallback if exactly 90 doesn't exist
       if (day90Deaths === 0 && invData.length > 0) {
         day90Deaths = invData[invData.length - 1].deaths_p50;
       }
-      
+
       let verdict = '';
       if (peakInfections > 150) {
         verdict = "High transmission — intervention critical";
@@ -119,7 +142,7 @@ export default function PlannerView() {
 
       stats[inv.key] = { peakInfections, peakDay, day90Deaths, verdict };
     });
-    
+
     return stats;
   }, [seirdData]);
 
@@ -127,10 +150,10 @@ export default function PlannerView() {
   const cityTableData = useMemo(() => {
     if (!cityData) return [];
     const cityNames = Object.keys(cityData);
-    
+
     const rows = cityNames.map(city => {
       const cityRow: Record<string, any> = { city };
-      INTERVENTIONS.forEach(inv => {
+      dynamicInterventions.forEach(inv => {
         const invArray = cityData[city]?.[inv.key] || [];
         const sorted = [...invArray].sort((a: any, b: any) => Number(b.day) - Number(a.day));
         const latest = sorted.find((d: any) => Number(d.day) === 180) ?? sorted[0];
@@ -150,11 +173,11 @@ export default function PlannerView() {
     const resources: Record<string, { peakOxygen: number, peakICU: number, shortfall: number }> = {};
     const capacityCeiling = 17000;
 
-    INTERVENTIONS.forEach(inv => {
+    dynamicInterventions.forEach(inv => {
       const invWeeks = resourceData[inv.key] || [];
       let peakOxygen = 0;
       let peakICU = 0;
-      
+
       invWeeks.forEach((w: any) => {
         if (w.oxygen_mt > peakOxygen) {
           peakOxygen = w.oxygen_mt;
@@ -163,7 +186,7 @@ export default function PlannerView() {
           peakICU = w.icu_beds;
         }
       });
-      
+
       const shortfall = peakOxygen - capacityCeiling;
       resources[inv.key] = { peakOxygen, peakICU, shortfall };
     });
@@ -183,7 +206,7 @@ export default function PlannerView() {
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
       <main className="flex-1 p-6 space-y-8 max-w-[1440px] mx-auto w-full overflow-y-auto">
-        
+
         {/* Phase Builder */}
         <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm mb-8">
           <div className="flex items-center justify-between mb-4">
@@ -204,8 +227,8 @@ export default function PlannerView() {
                 {running ? (
                   <>
                     <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                     </svg>
                     Running...
                   </>
@@ -214,9 +237,9 @@ export default function PlannerView() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3">
+          <div className="rounded-xl border border-outline overflow-hidden">
             {phases.map((phase, idx) => (
-              <div key={idx} className="flex items-center gap-3 bg-surface rounded-lg border border-outline p-3">
+              <div key={idx} className={`flex items-center gap-3 bg-surface py-3 px-4 ${idx !== phases.length - 1 ? 'border-b border-outline' : ''}`}>
                 <span className="text-xs font-mono text-on-surface-variant w-16">Phase {idx + 1}</span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-on-surface-variant font-mono">Day</span>
@@ -239,7 +262,7 @@ export default function PlannerView() {
                 <select
                   value={phase.intervention}
                   onChange={e => updatePhase(idx, 'intervention', e.target.value)}
-                  className="bg-surface-variant border border-outline rounded-lg px-3 py-1.5 text-sm font-mono text-on-surface focus:outline-none flex-1"
+                  className="bg-surface-variant border border-outline rounded-lg px-2 py-1.5 text-sm font-mono text-on-surface focus:outline-none flex-1"
                 >
                   {PHASE_INTERVENTIONS.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -263,17 +286,16 @@ export default function PlannerView() {
 
         {/* Section 1: Intervention Selector */}
         <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-wrap gap-2">
-          {INTERVENTIONS.map(inv => {
+          {dynamicInterventions.map(inv => {
             const isActive = activeLines[inv.key];
             return (
               <button
                 key={inv.key}
                 onClick={() => toggleLine(inv.key)}
-                className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full transition-colors border ${
-                  isActive 
-                    ? 'bg-surface border-outline text-on-surface' 
-                    : 'bg-transparent border-outline/50 text-on-surface-variant opacity-60'
-                }`}
+                className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full transition-colors border ${isActive
+                  ? 'bg-surface border-outline text-on-surface'
+                  : 'bg-transparent border-outline/50 text-on-surface-variant opacity-60'
+                  }`}
               >
                 <span className="w-3 h-3 rounded-full" style={{ backgroundColor: inv.color }}></span>
                 <span className="font-mono font-medium">{inv.label}</span>
@@ -283,8 +305,8 @@ export default function PlannerView() {
         </section>
 
         {/* Section 2: National Snapshot Cards */}
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {INTERVENTIONS.map(inv => {
+        <section className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.length}, minmax(0, 1fr))` }}>
+          {dynamicInterventions.map(inv => {
             if (!activeLines[inv.key]) return null;
             const stat = nationalStats[inv.key];
             if (!stat) return null;
@@ -294,12 +316,15 @@ export default function PlannerView() {
             else if (stat.verdict.includes('Moderate')) verdictColor = 'text-[var(--color-status-amber)]';
 
             return (
-              <div 
+              <div
                 key={`national-${inv.key}`}
                 className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-col gap-4"
-                style={{ borderTopWidth: '4px', borderTopColor: inv.color }}
+                style={{}}
               >
-                <h3 className="font-sans font-semibold text-on-background">{inv.label} Snapshot</h3>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: inv.color }}></span>
+                  <h3 className="font-sans font-semibold text-on-background">{inv.label}</h3>
+                </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-on-surface-variant font-mono uppercase tracking-wider">Peak Active Infections</span>
                   <span className="font-mono text-xl text-on-surface">
@@ -312,9 +337,7 @@ export default function PlannerView() {
                     {Math.round(stat.day90Deaths).toLocaleString()}
                   </span>
                 </div>
-                <div className={`mt-auto pt-4 border-t border-outline font-sans font-medium text-sm ${verdictColor}`}>
-                  {stat.verdict}
-                </div>
+                <div className="mt-auto pt-4 border-t border-outline" />
               </div>
             );
           })}
@@ -322,37 +345,43 @@ export default function PlannerView() {
 
         {/* Section 3: City Status Table */}
         <section className="bg-surface-variant rounded-xl border border-outline shadow-sm overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-outline">
+          <div
+            className="p-6 border-b border-outline flex justify-between items-center cursor-pointer"
+            onClick={() => setIsCityTableOpen(!isCityTableOpen)}
+          >
             <h3 className="text-lg font-semibold text-on-background font-sans">Day 180 Active Cases per City</h3>
+            <span className="text-on-surface-variant">{isCityTableOpen ? '▼' : '▶'}</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left font-mono text-sm">
-              <thead className="bg-surface border-b border-outline text-on-surface-variant text-xs uppercase">
-                <tr>
-                  <th className="px-6 py-3 font-medium">City</th>
-                  {INTERVENTIONS.map(inv => activeLines[inv.key] && (
-                    <th key={`th-${inv.key}`} className="px-6 py-3 font-medium">{inv.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-outline bg-surface/50 text-on-surface">
-                {cityTableData.map(row => (
-                  <tr key={row.city} className="hover:bg-surface-container-low transition-colors">
-                    <td className="px-6 py-4 font-medium capitalize">{row.city.charAt(0).toUpperCase() + row.city.slice(1).toLowerCase()}</td>
-                    {INTERVENTIONS.map(inv => {
-                      if (!activeLines[inv.key]) return null;
-                      const val = Math.round(row[inv.key]);
-                      return (
-                        <td key={`td-${row.city}-${inv.key}`} className={`px-6 py-4 font-bold ${getCityCellColor(val)}`}>
-                          {val.toLocaleString()}
-                        </td>
-                      );
-                    })}
+          {isCityTableOpen && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-sm">
+                <thead className="bg-surface border-b border-outline text-on-surface-variant text-xs uppercase">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">City</th>
+                    {dynamicInterventions.map(inv => activeLines[inv.key] && (
+                      <th key={`th-${inv.key}`} className="px-6 py-3 font-medium">{inv.label}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-outline bg-surface/50 text-on-surface">
+                  {cityTableData.map(row => (
+                    <tr key={row.city} className="hover:bg-surface-container-low transition-colors">
+                      <td className="px-6 py-4 font-medium capitalize">{row.city.charAt(0).toUpperCase() + row.city.slice(1).toLowerCase()}</td>
+                      {dynamicInterventions.map(inv => {
+                        if (!activeLines[inv.key]) return null;
+                        const val = Math.round(row[inv.key]);
+                        return (
+                          <td key={`td-${row.city}-${inv.key}`} className={`px-6 py-4 font-bold ${getCityCellColor(val)}`}>
+                            {val.toLocaleString()}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         {/* Section 4: Resource Shortfall Summary */}
@@ -363,8 +392,8 @@ export default function PlannerView() {
               National Oxygen Capacity Ceiling: <span className="font-bold">{resourceStats.capacityCeiling.toLocaleString()} MT/day</span>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {INTERVENTIONS.map(inv => {
+          <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.length}, minmax(0, 1fr))` }}>
+            {dynamicInterventions.map(inv => {
               if (!activeLines[inv.key]) return null;
               const res = resourceStats.resources[inv.key];
               if (!res) return null;
@@ -373,9 +402,10 @@ export default function PlannerView() {
 
               return (
                 <div key={`res-${inv.key}`} className="bg-surface rounded-lg border border-outline p-4 flex flex-col gap-3">
-                  <h4 className="font-sans font-medium text-on-surface border-b border-outline pb-2" style={{ color: inv.color }}>
-                    {inv.label}
-                  </h4>
+                  <div className="flex items-center gap-2 border-b border-outline pb-2">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: inv.color }}></span>
+                    <h4 className="font-sans font-medium text-on-surface">{inv.label}</h4>
+                  </div>
                   <div className="flex flex-col gap-1">
                     <span className="text-xs text-on-surface-variant font-mono uppercase tracking-wider">Peak Oxygen Demand</span>
                     <span className="font-mono text-on-surface">{Math.round(res.peakOxygen).toLocaleString()} MT/day</span>
@@ -387,6 +417,26 @@ export default function PlannerView() {
                   <div className={`mt-2 pt-3 border-t border-outline font-mono text-sm font-bold ${isShortfall ? 'text-[var(--color-status-red)]' : 'text-[var(--color-status-green)]'}`}>
                     {isShortfall ? `⚠ ${Math.round(res.shortfall).toLocaleString()} MT/day shortfall` : 'No shortfall'}
                   </div>
+                  <button
+                    onClick={() => setExpandedResCards(prev => ({ ...prev, [inv.key]: !prev[inv.key] }))}
+                    className="text-xs font-mono text-on-surface-variant hover:text-on-surface mt-2 flex items-center gap-1"
+                  >
+                    {expandedResCards[inv.key] ? '▲ Hide city breakdown' : '▼ Show city breakdown'}
+                  </button>
+                  {expandedResCards[inv.key] && (() => {
+                    const cityBreakdown = resourceCityData[inv.key] ?? [];
+
+                    return (
+                      <div className="mt-2 flex flex-col gap-1 border-t border-outline pt-2">
+                        {cityBreakdown.map((c: any) => (
+                          <div key={c.city} className="flex justify-between text-xs font-mono text-on-surface-variant">
+                            <span>{c.city}</span>
+                            <span>{Math.round(c.peak_oxygen_mt)} MT · {Math.round(c.peak_icu_beds)} ICU</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

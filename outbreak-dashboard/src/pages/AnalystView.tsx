@@ -22,7 +22,6 @@ const INTERVENTIONS = [
   { key: 'rail_only', label: 'Transit Halt', color: 'var(--color-status-amber)' },
   { key: 'partial', label: 'Partial Lockdown', color: 'var(--color-primary)' },
   { key: 'full', label: 'Full Quarantine', color: 'var(--color-status-green)' },
-  { key: 'custom_phase_1', label: 'Custom Plan', color: '#7C3AED' }
 ];
 
 const SpaghettiPlot = ({ 
@@ -149,10 +148,7 @@ const SpaghettiPlot = ({
           );
         })}
 
-        <line x1={getX(56)} y1={padTop} x2={getX(56)} y2={dim.height - padBottom} stroke="currentColor" strokeDasharray="4 4" />
-        <text x={getX(56)} y={padTop - 5} textAnchor="middle" fontSize="11" fill="currentColor">
-          Actual Lockdown
-        </text>
+
 
         {interventions.map(inv => {
           if (!activeLines[inv.key]) return null;
@@ -242,8 +238,27 @@ export default function AnalystView() {
     rail_only: true,
     partial: true,
     full: true,
-    custom_phase_1: true
   });
+
+  useEffect(() => {
+    if (!data) return;
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const customKeys = Object.keys(data).filter(k => !standardKeys.has(k));
+    customKeys.forEach(k => {
+      setActiveLines(prev => prev[k] === undefined ? { ...prev, [k]: true } : prev);
+    });
+  }, [data]);
+
+  const dynamicInterventions = useMemo(() => {
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const customKeys = Object.keys(data || {}).filter(k => !standardKeys.has(k));
+    const customEntries = customKeys.map(k => ({
+      key: k,
+      label: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      color: '#7C3AED'
+    }));
+    return [...INTERVENTIONS, ...customEntries];
+  }, [data]);
 
   const toggleLine = (key: string) => {
     setActiveLines(prev => ({ ...prev, [key]: !prev[key] }));
@@ -259,7 +274,7 @@ export default function AnalystView() {
 
     for (let day = 1; day <= maxDays; day++) {
       const dayData: any = { day };
-      INTERVENTIONS.forEach(inv => {
+      dynamicInterventions.forEach(inv => {
         const invData = data[inv.key]?.find(d => d.day === day);
         if (invData) {
           // infected
@@ -291,7 +306,7 @@ export default function AnalystView() {
 
     for (let week = 1; week <= maxWeeks; week++) {
       const weekData: any = { week };
-      INTERVENTIONS.forEach(inv => {
+      dynamicInterventions.forEach(inv => {
         const invDataList = resourceData[inv.key]?.filter(d => d.week === week);
         if (invDataList && invDataList.length > 0) {
           weekData[`${inv.key}_oxygen_mt`] = invDataList.reduce((sum, d) => sum + d.oxygen_mt, 0);
@@ -309,7 +324,7 @@ export default function AnalystView() {
 
     const stats: Record<string, { peakVal: number, peakDay: number, day180Val: number }> = {};
 
-    INTERVENTIONS.forEach(inv => {
+    dynamicInterventions.forEach(inv => {
       const invData = data[inv.key] || [];
       let peakVal = 0;
       let peakDay = 0;
@@ -344,7 +359,7 @@ export default function AnalystView() {
 
             if (!isVisible) return null;
 
-            const invInfo = INTERVENTIONS.find(i => i.key === invKey);
+            const invInfo = dynamicInterventions.find(i => i.key === invKey);
             const val = Math.round(entry.value);
 
             return (
@@ -364,7 +379,7 @@ export default function AnalystView() {
   const renderLegend = () => {
     return (
       <div className="flex flex-wrap gap-4 justify-center mt-4">
-        {INTERVENTIONS.map((inv) => {
+        {dynamicInterventions.map((inv) => {
           const isActive = activeLines[inv.key];
           return (
             <button
@@ -470,13 +485,13 @@ export default function AnalystView() {
               </div>
             </div>
           </div>
-          <div className="h-[400px] w-full">
+          <div className="h-[320px] w-full">
             {plotMode === 'spaghetti' ? (
               <SpaghettiPlot 
                 chartData={chartData} 
                 activeLines={activeLines} 
                 logScale={logScale} 
-                interventions={INTERVENTIONS} 
+                interventions={dynamicInterventions} 
               />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -498,15 +513,9 @@ export default function AnalystView() {
                   />
                   <Tooltip content={<CustomTooltip />} />
 
-                  {/* Reference Line for Lockdown */}
-                  <ReferenceLine
-                    x={56}
-                    stroke="var(--color-on-surface-variant)"
-                    strokeDasharray="4 4"
-                    label={{ position: 'top', value: 'Actual Lockdown', fill: 'var(--color-on-surface-variant)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
-                  />
 
-                  {INTERVENTIONS.map(inv => activeLines[inv.key] && (
+
+                  {dynamicInterventions.map(inv => activeLines[inv.key] && (
                     <Area
                       key={`${inv.key}-area`}
                       type="monotone"
@@ -517,7 +526,7 @@ export default function AnalystView() {
                     />
                   ))}
 
-                  {INTERVENTIONS.map(inv => activeLines[inv.key] && (
+                  {dynamicInterventions.map(inv => activeLines[inv.key] && (
                     <Line
                       key={`${inv.key}-line`}
                       type="monotone"
@@ -537,8 +546,8 @@ export default function AnalystView() {
 
         {/* Summary Stats Row */}
         {summaryStats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {INTERVENTIONS.map(inv => {
+          <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.length}, minmax(0, 1fr))` }}>
+            {dynamicInterventions.map(inv => {
               const stats = summaryStats[inv.key];
               if (!stats) return null;
 
@@ -546,10 +555,13 @@ export default function AnalystView() {
                 <div
                   key={inv.key}
                   className="bg-surface-variant rounded-lg border-t border-r border-b border-outline p-4 relative shadow-sm hover:bg-surface-container-low transition-colors"
-                  style={{ borderLeftWidth: '4px', borderLeftColor: inv.color }}
+                  style={{}}
                 >
                   <div className="flex justify-between items-start mb-4">
-                    <span className="font-mono text-xs uppercase tracking-wider text-on-surface-variant font-bold">{inv.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: inv.color }}></span>
+                      <span className="font-mono text-xs uppercase tracking-wider text-on-surface-variant font-bold">{inv.label}</span>
+                    </div>
                   </div>
                   <div className="space-y-3">
                     <div>
@@ -596,13 +608,9 @@ export default function AnalystView() {
                 />
                 <Tooltip content={<CustomTooltip />} />
 
-                <ReferenceLine
-                  x={56}
-                  stroke="var(--color-on-surface-variant)"
-                  strokeDasharray="4 4"
-                />
 
-                {INTERVENTIONS.map(inv => activeLines[inv.key] && (
+
+                {dynamicInterventions.map(inv => activeLines[inv.key] && (
                   <Area
                     key={`${inv.key}-death-area`}
                     type="monotone"
@@ -613,7 +621,7 @@ export default function AnalystView() {
                   />
                 ))}
 
-                {INTERVENTIONS.map(inv => activeLines[inv.key] && (
+                {dynamicInterventions.map(inv => activeLines[inv.key] && (
                   <Line
                     key={`${inv.key}-death-line`}
                     type="monotone"
@@ -661,7 +669,7 @@ export default function AnalystView() {
 
                             if (!isVisible) return null;
 
-                            const invInfo = INTERVENTIONS.find(i => i.key === invKey);
+                            const invInfo = dynamicInterventions.find(i => i.key === invKey);
                             const val = Math.round(entry.value);
 
                             return (
@@ -687,7 +695,7 @@ export default function AnalystView() {
                   label={{ position: 'top', value: 'National Capacity (9.69k MT)', fill: 'var(--color-error)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
                 />
 
-                {INTERVENTIONS.map(inv => activeLines[inv.key] && (
+                {dynamicInterventions.map(inv => activeLines[inv.key] && (
                   <Line
                     key={`${inv.key}-oxygen-line`}
                     type="monotone"
@@ -703,12 +711,7 @@ export default function AnalystView() {
           </div>
         </div>
 
-        {/* Placeholders for Future Panels */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
-          <div className="bg-surface-container rounded-xl border border-outline border-dashed h-64 flex items-center justify-center text-on-surface-variant opacity-60">
-            <span className="font-mono text-sm">[ City Drilldown Placeholder ]</span>
-          </div>
-        </div>
+
 
       </main>
     </div>

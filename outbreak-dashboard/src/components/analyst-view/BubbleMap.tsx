@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface BubbleMapProps {
   cityData: Record<string, Record<string, CityStatus[]>>;
+  resourceData: Record<string, any[]>;
   activeIntervention: string;
   simulationDay: number;
   onDayChange: (day: number | ((prev: number) => number)) => void;
@@ -16,7 +17,6 @@ const INTERVENTIONS = [
   { key: 'rail_only', label: 'Transit Halt', color: '#F57F17' },
   { key: 'partial', label: 'Partial Lockdown', color: '#2E4A8C' },
   { key: 'full', label: 'Full Quarantine', color: '#2E7D32' },
-  { key: 'custom_phase_1', label: 'Custom Plan', color: '#7C3AED' }
 ];
 
 const INTERVENTION_LABELS: Record<string, string> = {
@@ -24,7 +24,6 @@ const INTERVENTION_LABELS: Record<string, string> = {
   rail_only: 'Transit Halt',
   partial: 'Partial Lockdown',
   full: 'Full Quarantine',
-  custom_phase_1: 'Custom Plan'
 };
 
 const EDGE_COLORS: Record<string, string> = {
@@ -32,7 +31,6 @@ const EDGE_COLORS: Record<string, string> = {
   rail_only: '#F57F17',
   partial: '#2E4A8C',
   full: '#2E7D32',
-  custom_phase_1: '#7C3AED',
 };
 
 const CITIES: Record<string, { lat: number; lng: number; displayName: string; population: number }> = {
@@ -72,6 +70,7 @@ const MOBILITY_EDGES = [
 
 export default function BubbleMap({
   cityData,
+  resourceData,
   activeIntervention,
   simulationDay,
   onDayChange,
@@ -402,51 +401,78 @@ export default function BubbleMap({
               </span>
             </div>
 
-            <div className="border-t border-outline pt-2 mt-2">
-              <p className="font-mono text-[10px] text-on-surface-variant opacity-60 italic">
-                SEIRD breakdown · Rₜ · hospital load available after profiler integration
-              </p>
+            <div className="border-t border-outline pt-2 mt-2 space-y-1.5">
+              {(() => {
+                const cityRows = (resourceData[activeIntervention] ?? []) as any[];
+                const cityRow = cityRows.find((r: any) =>
+                  r.city?.toLowerCase() === selectedCity?.toLowerCase()
+                );
+                if (!cityRow) return (
+                  <p className="font-mono text-[10px] text-on-surface-variant opacity-60 italic">
+                    No resource data available
+                  </p>
+                );
+                return (
+                  <>
+                    <div className="flex justify-between items-baseline">
+                      <span className="font-mono text-xs text-on-surface-variant uppercase">Peak Oxygen</span>
+                      <span className="font-mono text-xs text-on-background font-semibold">
+                        {Math.round(cityRow.peak_oxygen_mt)} MT/day
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="font-mono text-xs text-on-surface-variant uppercase">Peak ICU Beds</span>
+                      <span className="font-mono text-xs text-on-background font-semibold">
+                        {Math.round(cityRow.peak_icu_beds).toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
       )}
 
       {/* Scrubber overlay */}
-      <div className="absolute bottom-0 left-0 right-0 bg-surface/92 backdrop-blur-sm px-5 py-3 border-t border-outline z-10">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-mono text-sm text-on-surface-variant">
-            Day <span className="text-on-background font-semibold">{simulationDay}</span>
-            <span className="text-xs ml-2 opacity-60">
-              {simulationDay <= 32 ? '· Containment' : simulationDay <= 55 ? '· Exponential Liftoff' : `· ${INTERVENTION_LABELS[activeIntervention]}`}
-            </span>
-          </span>
+      <div className="absolute bottom-0 left-0 right-0 bg-surface/92 backdrop-blur-sm px-4 py-2 border-t border-outline z-10">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setIsPlaying(p => !p)}
-            className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary hover:opacity-90 transition-opacity"
+            className="shrink-0 flex items-center gap-2 bg-primary text-on-primary px-3 py-1.5 rounded-lg text-xs font-mono font-medium hover:opacity-90 transition-opacity"
           >
-            {isPlaying
-              ? (
-                <svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor">
+            {isPlaying ? (
+              <>
+                <svg width="8" height="10" viewBox="0 0 10 12" fill="currentColor">
                   <rect x="1" y="2" width="3" height="8" />
                   <rect x="6" y="2" width="3" height="8" />
                 </svg>
-              )
-              : (
-                <svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor">
+                Pause
+              </>
+            ) : (
+              <>
+                <svg width="8" height="10" viewBox="0 0 10 12" fill="currentColor">
                   <polygon points="2,2 2,10 9,6" />
                 </svg>
-              )
-            }
+                Play simulation
+              </>
+            )}
           </button>
+          <span className="font-mono text-sm text-on-surface-variant shrink-0">
+            Day <span className="text-on-background font-semibold">{simulationDay}</span>
+            <span className="text-xs ml-2 opacity-60">
+              {simulationDay <= 32 ? '· Containment' : simulationDay <= 55 ? '· Exponential Liftoff' : `· ${INTERVENTION_LABELS[activeIntervention] ?? activeIntervention}`}
+            </span>
+          </span>
+          <input
+            type="range" min={1} max={180} value={simulationDay}
+            onChange={e => {
+              setIsPlaying(false);
+              onDayChange(Number(e.target.value));
+            }}
+            className="flex-1 accent-primary h-1.5 rounded-full"
+          />
         </div>
-        <input
-          type="range" min={1} max={180} value={simulationDay}
-          onChange={e => {
-            setIsPlaying(false);
-            onDayChange(Number(e.target.value));
-          }}
-          className="w-full accent-primary h-1.5 rounded-full"
-        />
       </div>
     </div>
   );
