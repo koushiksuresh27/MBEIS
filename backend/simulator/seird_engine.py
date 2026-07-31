@@ -19,7 +19,7 @@ from backend.simulator.resource_calculator import calculate_resource_projections
 
 N_DAYS = 180
 
-# 15-city node data (research7.txt, CAGR-interpolated 2020 populations).
+# 15-city node data (GHSL/CAGR-interpolated 2020 populations).
 CITIES = {
     "Delhi":         {"pop": 33_127_402, "lat": 28.7041, "lon": 77.1025},
     "Mumbai":        {"pop": 23_582_050, "lat": 19.0760, "lon": 72.8777},
@@ -38,12 +38,28 @@ CITIES = {
     "Guwahati":      {"pop": 1_349_253,  "lat": 26.1445, "lon": 91.7362},
 }
 
+# Local transmission multipliers per intervention.
+# These scale beta (contact rate) to reflect policy-driven changes
+# in local contact density — independent of the mobility/travel layer.
+#   none:      no policy, full contact density
+#   rail_only: transit halt grounds flights + reduces inter-city bus/rail
+#              contact density reduced ~15%
+#   partial:   partial lockdown, 40% reduction in local contacts
+#   full:      strict quarantine, 75% reduction in local contacts
 LOCAL_TRANSMISSION_MULTIPLIER = {
-    'none': 1.0,
-    'rail_only': 0.85,     # Transit Halt grounds flights, stops intercity buses/trains (reduces local contact density)
-    'partial': 0.6,        # 40% reduction in local contacts
-    'full': 0.25           # 75% reduction in local contacts (strict stay-at-home)
+    'none':      1.00,
+    'rail_only': 0.85,
+    'partial':   0.60,
+    'full':      0.25,
 }
+
+# Modal share for inter-city passenger movement in India.
+# Source: NITI Aayog transport modal share estimates.
+# Road 50%, Rail 30%, Air 20% — used as baseline weights in apply_intervention.
+BASE_ROAD_SHARE = 0.50
+BASE_RAIL_SHARE = 0.30
+BASE_AIR_SHARE  = 0.20
+
 
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
@@ -52,6 +68,16 @@ def haversine_km(lat1, lon1, lat2, lon2):
     dlmb = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
     return 2 * R * math.asin(math.sqrt(a))
+
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate distance in km between two lat/lon points."""
+    R = 6371.0
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    return R * 2 * np.arcsin(np.sqrt(a))
+
 
 def build_mobility_matrix():
     """Gravity model: W_ij = pop_i * pop_j / distance_ij^2, normalized to [0,1]."""
@@ -70,31 +96,25 @@ def build_mobility_matrix():
         W = W / W.max()
     return names, W
 
-def haversine_distance(lat1, lon1, lat2, lon2):
-    """Calculate distance in km between two lat/lon points."""
-    R = 6371.0
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-    dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-    return R * 2 * np.arcsin(np.sqrt(a))
 
 class MobilityCalibrator:
     def __init__(self, alpha=3.5, beta=0.03):
         # alpha: max boost factor for zero-distance commuter/informal travel
-        # beta:  decay rate (km^-1). At beta=0.03, boost falls below 1.1× past ~80km
+        # beta:  decay rate (km^-1). At beta=0.03, boost falls below 1.1x past ~80km
         #        and is negligible by ~150km.
         # NOTE: beta must stay large enough that the boost is neutral for national-hub
         # distances (>500km). The radiation-model raw weights already encode long-range
         # decay — this term exists only to capture short-range commuter/informal travel
         # NOT captured in the radiation model. Double-counting at hub distances causes
         # aviation to be structurally unable to compensate for terrestrial dominance.
+        # DO NOT set beta=0.005 — that was the double-decay bug.
         self.alpha = alpha
         self.beta = beta
 
     def apply_distance_decay(self, raw_matrix, distance_matrix):
         # Short-range commuter boost: S_ij = 1 + alpha * e^(-beta * d_ij)
         # Becomes negligible (<1.1x) past ~80km at beta=0.03.
-        # Represents informal/commuter trips not captured in the radiation model.
+        # Applied to road layer only — rail OD matrix already encodes route distances.
         decay_scalar_matrix = 1 + self.alpha * np.exp(-self.beta * distance_matrix)
         return raw_matrix * decay_scalar_matrix
 
@@ -103,49 +123,75 @@ class MobilityCalibrator:
         Converts edges to probabilities and bounds them by physical capacity.
         Includes a 1e-9 epsilon to prevent division-by-zero NaN cascades.
         """
-        row_sums = adjusted_matrix.sum(axis=1, keepdims=True) + 1e-9 
-        probability_matrix = adjusted_matrix / row_sums 
+        row_sums = adjusted_matrix.sum(axis=1, keepdims=True) + 1e-9
+        probability_matrix = adjusted_matrix / row_sums
         return probability_matrix * outbound_capacity_array
 
-# Approximate structural capacities (daily outbound train/bus pax) + Coordinates
+
+# Approximate structural capacities (daily outbound pax) + coordinates.
+# THRISSUR and THIRUVANANTHAPURAM retained here for structural reference
+# but are NOT in the CITIES dict (removed in 17→15 node fix).
 STRUCTURAL_DATA = {
-    "DELHI": {"lat": 28.6139, "lon": 77.2090, "cap": 450000},
-    "MUMBAI": {"lat": 19.0760, "lon": 72.8777, "cap": 400000},
-    "KOLKATA": {"lat": 22.5726, "lon": 88.3639, "cap": 350000},
-    "BENGALURU": {"lat": 12.9716, "lon": 77.5946, "cap": 300000},
-    "CHENNAI": {"lat": 13.0827, "lon": 80.2707, "cap": 250000},
-    "HYDERABAD": {"lat": 17.3850, "lon": 78.4867, "cap": 200000},
-    "AHMEDABAD": {"lat": 23.0225, "lon": 72.5714, "cap": 150000},
-    "PUNE": {"lat": 18.5204, "lon": 73.8567, "cap": 150000},
-    "LUCKNOW": {"lat": 26.8467, "lon": 80.9462, "cap": 100000},
-    "JAIPUR": {"lat": 26.9124, "lon": 75.7873, "cap": 90000},
-    "PATNA": {"lat": 25.5941, "lon": 85.1376, "cap": 100000},
-    "KOCHI": {"lat": 9.9312, "lon": 76.2673, "cap": 80000},
-    "VISAKHAPATNAM": {"lat": 17.6868, "lon": 83.2185, "cap": 70000},
-    "BHOPAL": {"lat": 23.2599, "lon": 77.4126, "cap": 60000},
-    "GUWAHATI": {"lat": 26.1445, "lon": 91.7362, "cap": 50000},
-    "THIRUVANANTHAPURAM": {"lat": 8.5241, "lon": 76.9366, "cap": 60000},
-    "THRISSUR": {"lat": 10.5276, "lon": 76.2144, "cap": 40000},
+    "DELHI":             {"lat": 28.6139, "lon": 77.2090, "cap": 450000},
+    "MUMBAI":            {"lat": 19.0760, "lon": 72.8777, "cap": 400000},
+    "KOLKATA":           {"lat": 22.5726, "lon": 88.3639, "cap": 350000},
+    "BENGALURU":         {"lat": 12.9716, "lon": 77.5946, "cap": 300000},
+    "CHENNAI":           {"lat": 13.0827, "lon": 80.2707, "cap": 250000},
+    "HYDERABAD":         {"lat": 17.3850, "lon": 78.4867, "cap": 200000},
+    "AHMEDABAD":         {"lat": 23.0225, "lon": 72.5714, "cap": 150000},
+    "PUNE":              {"lat": 18.5204, "lon": 73.8567, "cap": 150000},
+    "LUCKNOW":           {"lat": 26.8467, "lon": 80.9462, "cap": 100000},
+    "JAIPUR":            {"lat": 26.9124, "lon": 75.7873, "cap":  90000},
+    "PATNA":             {"lat": 25.5941, "lon": 85.1376, "cap": 100000},
+    "KOCHI":             {"lat":  9.9312, "lon": 76.2673, "cap":  80000},
+    "VISAKHAPATNAM":     {"lat": 17.6868, "lon": 83.2185, "cap":  70000},
+    "BHOPAL":            {"lat": 23.2599, "lon": 77.4126, "cap":  60000},
+    "GUWAHATI":          {"lat": 26.1445, "lon": 91.7362, "cap":  50000},
+    "THIRUVANANTHAPURAM":{"lat":  8.5241, "lon": 76.9366, "cap":  60000},
+    "THRISSUR":          {"lat": 10.5276, "lon": 76.2144, "cap":  40000},
 }
 
-def build_composite_matrix(meta_edges_path=None, dgca_path=None):
+
+def build_composite_matrix(
+    meta_edges_path: str = None,
+    dgca_path: str = None,
+    irctc_path: str = None
+):
+    """
+    Builds three independent mobility matrices and returns them as a dict.
+
+    Three layers:
+      road  — meta_mobility_edges.csv (NH highway-adjusted radiation model)
+      rail  — irctc_mobility_edges.csv (IRCTC OD passenger matrix, normalized)
+      air   — dgca_annual_weights.csv (DGCA annual passenger flows)
+
+    Distance decay is applied to road only — rail OD already encodes route
+    distances implicitly. Aviation is symmetric (DGCA reports undirected flows).
+
+    Returns:
+        names   — list of 15 city name strings
+        matrices — dict with keys 'road', 'rail', 'air', each an (n, n) ndarray
+    """
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     if meta_edges_path is None:
         meta_edges_path = os.path.join(BASE_DIR, "meta_mobility_edges.csv")
     if dgca_path is None:
         dgca_path = os.path.join(BASE_DIR, "dgca_annual_weights.csv")
-        
+    if irctc_path is None:
+        irctc_path = os.path.join(BASE_DIR, "irctc_mobility_edges.csv")
+
     names = list(CITIES.keys())
     n = len(names)
     name_to_idx = {name.upper(): i for i, name in enumerate(names)}
-    
-    W_raw_terr = np.zeros((n, n))
+
+    W_raw_road = np.zeros((n, n))
     W_aviation = np.zeros((n, n))
+    W_rail     = np.zeros((n, n))
+
     distance_matrix = np.zeros((n, n))
     capacities = np.zeros((n, 1))
-    edge_types = {}
-    
-    # Build Geo-Distance Matrix & Capacity Array
+
+    # ── Build geo-distance matrix and capacity array ───────────────────────
     for name1 in names:
         i = name_to_idx[name1.upper()]
         data1 = STRUCTURAL_DATA.get(name1.upper())
@@ -154,137 +200,193 @@ def build_composite_matrix(meta_edges_path=None, dgca_path=None):
             j = name_to_idx[name2.upper()]
             data2 = STRUCTURAL_DATA.get(name2.upper())
             if data1 and data2 and i != j:
-                distance_matrix[i, j] = haversine_distance(data1["lat"], data1["lon"], data2["lat"], data2["lon"])
+                distance_matrix[i, j] = haversine_distance(
+                    data1["lat"], data1["lon"],
+                    data2["lat"], data2["lon"]
+                )
 
-    # 1. Load Raw Terrestrial
+    # ── 1. Load road layer (meta_mobility_edges.csv) ───────────────────────
     if os.path.exists(meta_edges_path):
         with open(meta_edges_path, newline='') as f:
             for row in csv.DictReader(f):
-                src, tgt = row['source_node_id'].strip().upper(), row['target_node_id'].strip().upper()
+                src = row['source_node_id'].strip().upper()
+                tgt = row['target_node_id'].strip().upper()
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_raw_terr[i, j] = float(row['normalized_terrestrial_weight'])
-                    edge_types[tuple(sorted([i, j]))] = 'terrestrial'
-                    
-    # 2. Load Aviation
-    city_aliases = {"TRIVANDRUM": "THIRUVANANTHAPURAM", "BENGALURU": "BENGALURU"}
+                    W_raw_road[i, j] = float(row['normalized_terrestrial_weight'])
+    else:
+        print(f"[engine] WARNING: meta_edges not found at {meta_edges_path}")
+
+    # ── 2. Load aviation layer (dgca_annual_weights.csv) ──────────────────
+    # DGCA flows are undirected — force symmetry.
+    city_aliases_dgca = {"TRIVANDRUM": "THIRUVANANTHAPURAM", "BENGALURU": "BENGALURU"}
     if os.path.exists(dgca_path):
         with open(dgca_path, newline='') as f:
             for row in csv.DictReader(f):
-                src = city_aliases.get(row['CITY1'].strip().upper(), row['CITY1'].strip().upper())
-                tgt = city_aliases.get(row['CITY2'].strip().upper(), row['CITY2'].strip().upper())
+                src = city_aliases_dgca.get(row['CITY1'].strip().upper(), row['CITY1'].strip().upper())
+                tgt = city_aliases_dgca.get(row['CITY2'].strip().upper(), row['CITY2'].strip().upper())
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
                     W_aviation[i, j] = float(row['NORMALIZED'])
-                    W_aviation[j, i] = W_aviation[i, j]
-                    edge_types[tuple(sorted([i, j]))] = 'air'
-                    
-    # 3. Apply Calibrator Physics — use class defaults (alpha=3.5, beta=0.03)
-    # DO NOT pass beta=0.005 here; that was the double-decay bug.
+                    W_aviation[j, i] = W_aviation[i, j]   # symmetric
+    else:
+        print(f"[engine] WARNING: DGCA file not found at {dgca_path}")
+
+    # ── 3. Load rail layer (irctc_mobility_edges.csv) ─────────────────────
+    # IRCTC OD matrix is asymmetric (directional passenger flows).
+    # normalized_rail_weight already sums to 1.0 per source row.
+    if os.path.exists(irctc_path):
+        with open(irctc_path, newline='') as f:
+            for row in csv.DictReader(f):
+                src = row['source_node_id'].strip().upper()
+                tgt = row['target_node_id'].strip().upper()
+                if src in name_to_idx and tgt in name_to_idx:
+                    i, j = name_to_idx[src], name_to_idx[tgt]
+                    W_rail[i, j] = float(row['normalized_rail_weight'])
+    else:
+        print(f"[engine] WARNING: IRCTC file not found at {irctc_path}")
+
+    # ── 4. Apply calibrator physics ────────────────────────────────────────
+    # Distance decay applied to road only.
+    # Rail OD matrix implicitly encodes route distances via passenger volumes.
+    # Aviation is already a hub-spoke structure — no decay needed.
     calibrator = MobilityCalibrator()
-    W_terr_adjusted = calibrator.apply_distance_decay(W_raw_terr, distance_matrix)
-    
-    # 4. Independent row-stochastic bounds for each modal layer.
-    #    Rationale: np.maximum(terrestrial_adjusted, aviation) then a single bound lets
-    #    the inflated short-range terrestrial term eclipse aviation on hub edges.
-    #    Instead we bound each layer separately against outbound capacity first, then
-    #    for air edges take elementwise max of the two bounded outputs.
-    #    This keeps rows ≤ outbound capacity (row-stochastic property preserved) while
-    #    guaranteeing aviation is a hard minimum on any DGCA-registered corridor.
-    W_terr_final = calibrator.apply_row_stochastic_bound(W_terr_adjusted, capacities)
-    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,      capacities)
-    
-    # Start with terrestrial baseline, then enforce aviation floor on air corridors
-    W_final = W_terr_final.copy()
-    for (i, j), etype in edge_types.items():
-        if etype == 'air':
-            W_final[i, j] = max(W_terr_final[i, j], W_air_final[i, j])
-            W_final[j, i] = max(W_terr_final[j, i], W_air_final[j, i])
-    
-    # Do NOT scale to 1.0. The biological engine needs the absolute traveler volume.
-    return names, W_final, edge_types
+    W_road_decayed = calibrator.apply_distance_decay(W_raw_road, distance_matrix)
+
+    # Independent row-stochastic bounds per modal layer.
+    # Bounding each layer separately prevents short-range terrestrial dominance
+    # from eclipsing aviation on hub corridors.
+    W_road_final = calibrator.apply_row_stochastic_bound(W_road_decayed, capacities)
+    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,     capacities)
+    W_rail_final = calibrator.apply_row_stochastic_bound(W_rail,         capacities)
+
+    matrices = {
+        'road': W_road_final,
+        'rail': W_rail_final,
+        'air':  W_air_final,
+    }
+
+    return names, matrices
 
 
-def apply_intervention(W_base, edge_types, intervention_type):
+def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
     """
-    Apply intervention-specific mobility down-weighting.
-    
-    Escalation logic — every higher intervention includes all restrictions below it:
-      none:      air 100%,  terrestrial 100%
-      rail_only: air 0%,    terrestrial 100%
-      partial:   air 0%,    terrestrial 50%
-      full:      air 0%,    terrestrial 15%
-    
-    A Full Quarantine always grounds all flights. Leaving 15% of air
-    traffic running during a full quarantine is epidemiologically indefensible.
+    Three-layer mobility blending for intervention scenarios.
+
+    Baseline modal share (NITI Aayog inter-city estimates):
+        Road 50%  Rail 30%  Air 20%
+
+    Intervention logic:
+        none      — all modes at full share (100% mobility)
+        rail_only — "Transit Halt": ground flights, reduce road to 30% of
+                    baseline road share, keep rail running at full share.
+                    Road is cut because inter-city highway movement drops
+                    significantly when transit is halted. Rail continues
+                    as the primary remaining inter-city mode.
+                    Total mobility retained: 45% of baseline.
+
+        partial   — "Partial Lockdown": ground flights, halve road and rail.
+                    Total mobility retained: 40% of baseline.
+
+        full      — "Full Quarantine": ground flights and rail entirely.
+                    Essential road traffic only (15% of baseline road share).
+                    Total mobility retained: 7.5% of baseline.
+
+    Escalation is monotone: each stricter intervention is a superset of
+    restrictions from the one below it.
     """
-    W = W_base.copy()
-    n = W.shape[0]
+    W_road = matrices['road']
+    W_rail = matrices['rail']
+    W_air  = matrices['air']
 
-    for i in range(n):
-        for j in range(i + 1, n):
-            is_air = edge_types.get(tuple(sorted([i, j]))) == 'air'
+    if intervention_type == 'none':
+        # Full baseline modal share
+        w_road = BASE_ROAD_SHARE        # 0.50
+        w_rail = BASE_RAIL_SHARE        # 0.30
+        w_air  = BASE_AIR_SHARE         # 0.20
 
-            if intervention_type == 'none':
-                pass
+    elif intervention_type == 'rail_only':
+        # Transit Halt: all passenger movement stopped across all modes
+        # Only essential cargo, medical, repatriation movement active
+        # Road: 10% of baseline (0.50 × 0.10 = 0.050)
+        # Rail: 10% of baseline (0.30 × 0.10 = 0.030)
+        # Air:   5% of baseline (0.20 × 0.05 = 0.010)
+        # Total: 9% of baseline mobility
+        w_road = BASE_ROAD_SHARE * 0.10  # 0.050
+        w_rail = BASE_RAIL_SHARE * 0.10  # 0.030
+        w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
 
-            elif intervention_type == 'rail_only':
-                if is_air:
-                    W[i, j] = 0.0
-                    W[j, i] = 0.0
-                else:
-                    W[i, j] *= 0.3
-                    W[j, i] *= 0.3
+    elif intervention_type == 'partial':
+        # Partial Lockdown (Option B): significant restriction, economy partial
+        # Flights reduced not grounded, rail at reduced frequency, road restricted
+        # Road: 40% of baseline (0.50 × 0.40 = 0.200)
+        # Rail: 30% of baseline (0.30 × 0.30 = 0.090)  (wait — see note below)
+        # Air:  20% of baseline (0.20 × 0.20 = 0.040)
+        # Total: 33% of baseline mobility
+        # NOTE: partial keeps air at 20% — flights reduced but not grounded
+        w_road = BASE_ROAD_SHARE * 0.40  # 0.200
+        w_rail = BASE_RAIL_SHARE * 0.30  # 0.090
+        w_air  = BASE_AIR_SHARE  * 0.20  # 0.040
 
-            elif intervention_type == 'partial':
-                if is_air:
-                    W[i, j] = 0.0
-                    W[j, i] = 0.0
-                else:
-                    W[i, j] *= 0.5
-                    W[j, i] *= 0.5
+    elif intervention_type == 'full':
+        # Full Quarantine: near-complete shutdown
+        # Only supply chain road and cargo/medical air active
+        # Rail completely stopped
+        # Road:  15% of baseline (0.50 × 0.15 = 0.075)
+        # Rail:   0% — completely stopped
+        # Air:    5% of baseline (0.20 × 0.05 = 0.010)
+        # Total: 8.5% of baseline mobility
+        w_road = BASE_ROAD_SHARE * 0.15  # 0.075
+        w_rail = 0.00
+        w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
 
-            elif intervention_type == 'full':
-                if is_air:
-                    W[i, j] = 0.0
-                    W[j, i] = 0.0
-                else:
-                    W[i, j] *= 0.15
-                    W[j, i] *= 0.15
+    else:
+        # Unknown intervention — fall back to baseline with a warning
+        print(f"[engine] WARNING: unknown intervention_type '{intervention_type}', using 'none'")
+        w_road = BASE_ROAD_SHARE
+        w_rail = BASE_RAIL_SHARE
+        w_air  = BASE_AIR_SHARE
 
-    return W
+    W_active = (w_road * W_road) + (w_rail * W_rail) + (w_air * W_air)
+    return W_active
+
+
 def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, local_mult):
     """
-    Standard Incidence calculation merging both local and imported infections.
+    Standard incidence calculation merging local and imported infections.
+
+    baseline_risk was removed because 1e-7 daily compounds over 90+ days to
+    silently ignite unexposed cities. The zero-state lock is structurally solved
+    by the aviation floor and improved terrestrial data providing genuine import
+    pressure.
     """
-    N_safe = np.maximum(N, 1) 
-    # Multiply beta by the local lockdown policy scalar
+    N_safe = np.maximum(N, 1)
     beta = (R0 / infectious_days) * local_mult
-    
-    # Total infectious pressure = local spread + newly arrived infected passengers
+
     total_I = I + imported_I
-    
-    # baseline_risk was removed because 1e-7 daily compounds over 90+ days to silently
-    # ignite unexposed cities. The zero-state lock is already structurally solved by 
-    # the aviation floor and improved terrestrial data providing genuine import pressure.
-    
-    # Standard Incidence: Force of infection scaled by local density
     force_of_infection = beta * (total_I / N_safe)
-    
+
     if force_of_infection.max() > 1.0:
         max_idx = force_of_infection.argmax()
-        print(f"WARNING: force_of_infection exceeded 1.0 at index {max_idx} (val: {force_of_infection[max_idx]:.3f})")
-    
-    # Convert rate to a daily probability strictly bounded between [0, 1]
+        print(f"WARNING: force_of_infection exceeded 1.0 at index {max_idx} "
+              f"(val: {force_of_infection[max_idx]:.3f})")
+
     p_infection = 1.0 - np.exp(-force_of_infection)
-    
-    # Execute the stochastic draw using the isolated PRNG stream
+
     S_int = S.astype(int)
     new_exposed = rng.binomial(n=S_int, p=p_infection)
-    
+
     return new_exposed.astype(float)
 
-def run_mc_iteration(names, base_W, edge_types, origin_city, intervention, r0, incubation_days, cfr, infectious_period, rng):
+
+def run_mc_iteration(
+    names, matrices, origin_city, intervention,
+    r0, incubation_days, cfr, infectious_period, rng
+):
+    """
+    Single Monte Carlo iteration for a fixed intervention.
+    matrices: dict with keys 'road', 'rail', 'air' from build_composite_matrix.
+    """
     n = len(names)
     pops = np.array([CITIES[c]["pop"] for c in names], dtype=float)
     S = pops.copy()
@@ -295,50 +397,44 @@ def run_mc_iteration(names, base_W, edge_types, origin_city, intervention, r0, i
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
-        # S must be decremented by the seed amount to preserve mass conservation
         seed = 500
         I[origin_idx] = seed
         S[origin_idx] -= seed
     else:
-        # Should never reach here after run_simulation's boundary normalization.
-        # Raise instead of silently seeding the wrong city.
         raise ValueError(
             f"run_mc_iteration: origin_city '{origin_city}' not in names list. "
-            f"Ensure run_simulation normalized it via strip().upper() before calling."
+            f"Ensure run_simulation normalized it before calling."
         )
 
-    beta = r0 / infectious_period
     sigma = 1.0 / incubation_days
     gamma = 1.0 / infectious_period
 
-    national_infected = np.zeros(N_DAYS)
-    national_deaths = np.zeros(N_DAYS)
+    national_infected     = np.zeros(N_DAYS)
+    national_deaths       = np.zeros(N_DAYS)
     national_new_infections = np.zeros(N_DAYS)
-    city_active = np.zeros((N_DAYS, n))
-    
-    W = apply_intervention(base_W, edge_types, intervention)
-    mobility_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
-    effective_beta = beta  # local transmission unaffected by travel restrictions
+    city_active           = np.zeros((N_DAYS, n))
+
+    # Build blended W matrix once per iteration (fixed for the full N_DAYS)
+    W = apply_intervention(matrices, intervention)
 
     for day in range(N_DAYS):
-        # Fetch the local lockdown multiplier for the current policy
         local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
-        
-        # 1. Calculate incoming infected passengers using W.T (inbound flow)
+
         import_pressure = W.T @ (I / np.maximum(pops, 1))
-        
-        # 2. Pass imported passengers directly into the strictly bounded Binomial function
-        total_new_infections = calculate_daily_infections(S, I, import_pressure, pops, r0, infectious_period, rng, local_mult)
-        
+
+        total_new_infections = calculate_daily_infections(
+            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult
+        )
+
         new_exposed_to_infectious = sigma * E
-        new_removed = gamma * I
-        new_deaths = new_removed * cfr
+        new_removed  = gamma * I
+        new_deaths   = new_removed * cfr
         new_recovered = new_removed * (1 - cfr)
 
-        # Capping flows to available compartment sizes to prevent mass-conservation bugs
-        total_new_infections = np.minimum(total_new_infections, S)
+        # Cap flows to available compartment sizes — mass conservation guard
+        total_new_infections      = np.minimum(total_new_infections, S)
         new_exposed_to_infectious = np.minimum(new_exposed_to_infectious, E)
-        new_removed = np.minimum(new_removed, I)
+        new_removed               = np.minimum(new_removed, I)
 
         S = S - total_new_infections
         E = E + total_new_infections - new_exposed_to_infectious
@@ -346,49 +442,59 @@ def run_mc_iteration(names, base_W, edge_types, origin_city, intervention, r0, i
         R = R + new_recovered
         D = D + new_deaths
 
-        national_infected[day] = I.sum()
-        national_deaths[day] = D.sum()
+        national_infected[day]       = I.sum()
+        national_deaths[day]         = D.sum()
         national_new_infections[day] = total_new_infections.sum()
-        city_active[day] = I
+        city_active[day]             = I
 
     return national_infected, national_deaths, national_new_infections, city_active
+
 
 def triangular(low, mode, high, size):
     return np.random.triangular(float(low), float(mode), float(high), size)
 
+
 def run_simulation(
     scenario_id: str,
     origin_city: str,
-    intervention_types: list[str],
+    intervention_types: list,
     n_iterations: int = 128,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
-    dgca_path: str = "dgca_annual_weights.csv"
-) -> None:
-    # Normalize origin_city at the boundary: case-insensitive lookup
-    # so that DB values match CITIES keys.
-    # This must be the single normalization point — do not add case-folding
-    # anywhere else (e.g. in run_mc_iteration) so the fix stays auditable.
+    dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
+    irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
+) -> dict:
+    """
+    Runs MC simulation for all specified interventions and writes to Supabase.
+    """
+    # Normalize origin_city at the boundary — single normalization point.
+    # THRISSUR alias handled in run_scenario.py before this is called.
     names = list(CITIES.keys())
-    matched = next((c for c in names if c.strip().lower() == origin_city.strip().lower()), None)
+    matched = next(
+        (c for c in names if c.strip().lower() == origin_city.strip().lower()), None
+    )
     if matched is None:
-        raise ValueError(f"origin_city '{origin_city}' not found in CITIES. Available: {names}")
+        raise ValueError(
+            f"origin_city '{origin_city}' not found in CITIES. Available: {names}"
+        )
     origin_city = matched
     print(f"[engine] origin_city resolved to '{origin_city}'")
 
     profile = get_latest_pathogen_profile(scenario_id)
-    
-    names, W_composite_base, edge_types = build_composite_matrix(meta_edges_path=meta_edges_path, dgca_path=dgca_path)
-    
+
+    names, matrices = build_composite_matrix(
+        meta_edges_path=meta_edges_path,
+        dgca_path=dgca_path,
+        irctc_path=irctc_path
+    )
+
     seird_rows_all = []
-    city_rows_all = []
-    
-    # 1. Draw all random samples using Quasi-Monte Carlo (Sobol Sequence)
-    # Generate a 4-dimensional low-discrepancy sequence
+    city_rows_all  = []
+
+    # QMC parameter sampling — Sobol low-discrepancy sequence
     m = int(np.ceil(np.log2(n_iterations)))
     sampler = qmc.Sobol(d=4, scramble=True, seed=42)
     uniform_samples = sampler.random_base2(m=m)[:n_iterations]
-    
-    # Inverse Transform Sampling function: maps Uniform[0,1] to Triangular bounds
+
     def to_triang(u, low, mode, high):
         scale = high - low
         if scale == 0:
@@ -396,102 +502,102 @@ def run_simulation(
         c = (mode - low) / scale
         return triang.ppf(u, c=c, loc=low, scale=scale)
 
-    r0_samples = to_triang(uniform_samples[:, 0], profile["r0_low"], profile["r0_most_likely"], profile["r0_high"])
-    inc_samples = to_triang(uniform_samples[:, 1], profile["incubation_days_low"], profile["incubation_days_most_likely"], profile["incubation_days_high"])
-    cfr_samples = to_triang(uniform_samples[:, 2], profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"])
-    
+    r0_samples  = to_triang(uniform_samples[:, 0],
+                             profile["r0_low"], profile["r0_most_likely"], profile["r0_high"])
+    inc_samples = to_triang(uniform_samples[:, 1],
+                             profile["incubation_days_low"],
+                             profile["incubation_days_most_likely"],
+                             profile["incubation_days_high"])
+    cfr_samples = to_triang(uniform_samples[:, 2],
+                             profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"])
+
     if "infectious_period_most_likely" in profile:
-        inf_samples = to_triang(uniform_samples[:, 3], profile["infectious_period_low"], profile["infectious_period_most_likely"], profile["infectious_period_high"])
+        inf_samples = to_triang(uniform_samples[:, 3],
+                                profile["infectious_period_low"],
+                                profile["infectious_period_most_likely"],
+                                profile["infectious_period_high"])
     else:
         inf_samples = np.full(n_iterations, 7.0)
 
     for intervention in intervention_types:
         print(f"Running {n_iterations} MC iterations for intervention={intervention}...")
-        all_infected = np.zeros((n_iterations, N_DAYS))
-        all_deaths = np.zeros((n_iterations, N_DAYS))
+        all_infected      = np.zeros((n_iterations, N_DAYS))
+        all_deaths        = np.zeros((n_iterations, N_DAYS))
         all_new_infections = np.zeros((n_iterations, N_DAYS))
-        all_city_active = np.zeros((n_iterations, N_DAYS, len(names)))
+        all_city_active   = np.zeros((n_iterations, N_DAYS, len(names)))
+
         seed_sequence = np.random.SeedSequence(42)
-        child_seeds = seed_sequence.spawn(n_iterations)
+        child_seeds   = seed_sequence.spawn(n_iterations)
 
         for it in range(n_iterations):
             rng = np.random.default_rng(child_seeds[it])
             inf, dth, new_inf, city_act = run_mc_iteration(
-                names, W_composite_base, edge_types, origin_city, intervention,
+                names, matrices, origin_city, intervention,
                 r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
                 rng
             )
-            all_infected[it] = inf
-            all_deaths[it] = dth
+            all_infected[it]       = inf
+            all_deaths[it]         = dth
             all_new_infections[it] = new_inf
-            all_city_active[it] = city_act
+            all_city_active[it]    = city_act
 
         for day in range(N_DAYS):
             seird_rows_all.append({
-                "scenario_id": scenario_id,
-                "pathogen_profile_version": profile["version"],
-                "intervention_type": intervention,
-                "day": day + 1,
-                "infected_p10": float(np.percentile(all_infected[:, day], 10)),
-                "infected_p50": float(np.percentile(all_infected[:, day], 50)),
-                "infected_p90": float(np.percentile(all_infected[:, day], 90)),
-                "deaths_p10": float(np.percentile(all_deaths[:, day], 10)),
-                "deaths_p50": float(np.percentile(all_deaths[:, day], 50)),
-                "deaths_p90": float(np.percentile(all_deaths[:, day], 90)),
-                "trajectory_sample": all_infected[:, day].tolist(),
-                "new_infections_trajectory_sample": all_new_infections[:, day].tolist(),
+                "scenario_id":               scenario_id,
+                "pathogen_profile_version":  profile["version"],
+                "intervention_type":         intervention,
+                "day":                       day + 1,
+                "infected_p10":  float(np.percentile(all_infected[:, day], 10)),
+                "infected_p50":  float(np.percentile(all_infected[:, day], 50)),
+                "infected_p90":  float(np.percentile(all_infected[:, day], 90)),
+                "deaths_p10":    float(np.percentile(all_deaths[:, day], 10)),
+                "deaths_p50":    float(np.percentile(all_deaths[:, day], 50)),
+                "deaths_p90":    float(np.percentile(all_deaths[:, day], 90)),
+                "trajectory_sample":
+                    all_infected[:, day].tolist(),
+                "new_infections_trajectory_sample":
+                    all_new_infections[:, day].tolist(),
             })
-            
+
             for ci, city in enumerate(names):
                 city_rows_all.append({
-                    "scenario_id": scenario_id,
+                    "scenario_id":              scenario_id,
                     "pathogen_profile_version": profile["version"],
-                    "intervention_type": intervention,
-                    "city": city,
-                    "day": day + 1,
+                    "intervention_type":        intervention,
+                    "city":                     city,
+                    "day":                      day + 1,
                     "active_cases_p10": float(np.percentile(all_city_active[:, day, ci], 10)),
                     "active_cases_p50": float(np.percentile(all_city_active[:, day, ci], 50)),
                     "active_cases_p90": float(np.percentile(all_city_active[:, day, ci], 90)),
                 })
-                
-    # Group and write results via existing io functions
+
+    # Write results grouped by intervention
     from itertools import groupby
     from operator import itemgetter
-    
+
     sorted_seird = sorted(seird_rows_all, key=itemgetter("intervention_type"))
     for inv_type, group in groupby(sorted_seird, key=itemgetter("intervention_type")):
         write_seird_results(list(group))
-        print(f"  [done] seird_results written for intervention={inv_type}")        
+        print(f"  [done] seird_results written for intervention={inv_type}")
+
     sorted_city = sorted(city_rows_all, key=itemgetter("intervention_type"))
     for inv_type, group in groupby(sorted_city, key=itemgetter("intervention_type")):
-        # Convert group to a list so it can be used multiple times
         city_group = list(group)
-        
-        # 1. Write the city status 
         write_city_status(city_group)
         print(f"  [done] city_status written for intervention={inv_type}")
-        
-        # 2. Wire up the resource calculator
-        # (Pass the profile so the calculator can scale severity based on CFR)
         resource_rows = calculate_resource_projections(city_group, scenario_id, profile)
-        
-        # 3. Write the resource projections to Supabase
         write_resource_projections(resource_rows)
         print(f"  [done] resource_projections written for intervention={inv_type}")
 
     return {
         "seird_results": seird_rows_all,
-        "city_status": city_rows_all,
+        "city_status":   city_rows_all,
     }
-    # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PHASED INTERVENTION RUNNER
-# Add this block to the END of seird_engine.py, after run_simulation().
-#
-# Adds two new functions:
-#   run_phased_mc_iteration() — like run_mc_iteration but resolves W per day
-#   run_phased_simulation()   — like run_simulation but accepts a schedule
-#
-# Zero changes to existing functions. Completely additive.
+# Completely additive — zero changes to functions above.
 #
 # Schedule format:
 #   [
@@ -499,13 +605,12 @@ def run_simulation(
 #       {"from_day": 31,  "to_day": 60,  "intervention": "partial"},
 #       {"from_day": 61,  "to_day": 180, "intervention": "none"},
 #   ]
-#
 # from_day and to_day are 1-indexed, inclusive on both ends.
-# Gaps between phases are filled with "none".
+# Gaps between phases default to "none".
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _resolve_intervention_for_day(day_1indexed: int, schedule: list[dict]) -> str:
+def _resolve_intervention_for_day(day_1indexed: int, schedule: list) -> str:
     """
     Returns the intervention type that applies on a given day (1-indexed).
     Falls back to 'none' if the day falls outside all defined phases.
@@ -517,17 +622,16 @@ def _resolve_intervention_for_day(day_1indexed: int, schedule: list[dict]) -> st
 
 
 def run_phased_mc_iteration(
-    names, base_W, edge_types, origin_city, schedule,
+    names, matrices, origin_city, schedule,
     r0, incubation_days, cfr, infectious_period, rng
 ):
     """
-    Identical to run_mc_iteration except the intervention matrix and
-    local transmission multiplier are resolved per day from a schedule,
-    rather than being fixed for the entire run.
+    Identical to run_mc_iteration except W is resolved per day from a schedule.
+    Pre-caches blended W matrices for each unique intervention to avoid
+    recomputing apply_intervention on every day.
 
     Returns: (national_infected, national_deaths, national_new_infections, city_active)
-    Same shape as run_mc_iteration — drop-in compatible with run_simulation's
-    aggregation logic.
+    Same shape as run_mc_iteration — drop-in compatible.
     """
     n = len(names)
     pops = np.array([CITIES[c]["pop"] for c in names], dtype=float)
@@ -548,20 +652,18 @@ def run_phased_mc_iteration(
             f"Ensure run_phased_simulation normalized it before calling."
         )
 
-    beta = r0 / infectious_period
     sigma = 1.0 / incubation_days
     gamma = 1.0 / infectious_period
 
-    national_infected = np.zeros(N_DAYS)
-    national_deaths = np.zeros(N_DAYS)
+    national_infected      = np.zeros(N_DAYS)
+    national_deaths        = np.zeros(N_DAYS)
     national_new_infections = np.zeros(N_DAYS)
-    city_active = np.zeros((N_DAYS, n))
+    city_active            = np.zeros((N_DAYS, n))
 
-    # Pre-cache W matrices for each unique intervention in the schedule
-    # to avoid recomputing apply_intervention on every day
+    # Pre-cache blended W matrices for each unique intervention in the schedule
     unique_interventions = set(p["intervention"] for p in schedule) | {"none"}
     W_cache = {
-        inv: apply_intervention(base_W.copy(), edge_types, inv)
+        inv: apply_intervention(matrices, inv)
         for inv in unique_interventions
     }
 
@@ -578,13 +680,13 @@ def run_phased_mc_iteration(
         )
 
         new_exposed_to_infectious = sigma * E
-        new_removed = gamma * I
-        new_deaths = new_removed * cfr
+        new_removed   = gamma * I
+        new_deaths    = new_removed * cfr
         new_recovered = new_removed * (1 - cfr)
 
-        total_new_infections = np.minimum(total_new_infections, S)
+        total_new_infections      = np.minimum(total_new_infections, S)
         new_exposed_to_infectious = np.minimum(new_exposed_to_infectious, E)
-        new_removed = np.minimum(new_removed, I)
+        new_removed               = np.minimum(new_removed, I)
 
         S = S - total_new_infections
         E = E + total_new_infections - new_exposed_to_infectious
@@ -592,10 +694,10 @@ def run_phased_mc_iteration(
         R = R + new_recovered
         D = D + new_deaths
 
-        national_infected[day] = I.sum()
-        national_deaths[day] = D.sum()
+        national_infected[day]       = I.sum()
+        national_deaths[day]         = D.sum()
         national_new_infections[day] = total_new_infections.sum()
-        city_active[day] = I
+        city_active[day]             = I
 
     return national_infected, national_deaths, national_new_infections, city_active
 
@@ -603,38 +705,38 @@ def run_phased_mc_iteration(
 def run_phased_simulation(
     scenario_id: str,
     origin_city: str,
-    schedule: list[dict],
+    schedule: list,
     label: str,
     n_iterations: int = 128,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
-    dgca_path: str = "dgca_annual_weights.csv"
+    dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
+    irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
 ) -> None:
     """
     Runs a phased intervention simulation and writes results to Supabase.
 
     Parameters:
         scenario_id:     same scenario UUID as the standard run
-        origin_city:     same origin city string (THRISSUR alias supported)
-        schedule:        list of phase dicts, each with from_day/to_day/intervention
-        label:           intervention_type string written to DB, e.g. "custom_phase_1"
-                         Must be unique — if a row with this label already exists
-                         for this scenario, it will be deleted and rewritten.
-        n_iterations:    MC iterations (default 128, same as standard run)
+        origin_city:     origin city string (THRISSUR alias supported)
+        schedule:        list of phase dicts with from_day/to_day/intervention
+        label:           intervention_type string written to DB (e.g. "custom_phase_1")
+                         Delete-before-insert is idempotent — safe to re-run.
+        n_iterations:    MC iterations (default 128)
         meta_edges_path: path to meta_mobility_edges.csv
         dgca_path:       path to dgca_annual_weights.csv
+        irctc_path:      path to irctc_mobility_edges.csv
 
     Schedule validation:
-        - from_day must be >= 1
-        - to_day must be <= N_DAYS
-        - intervention must be one of: none, rail_only, partial, full
-        - Phases may not overlap
-        - Days not covered by any phase default to 'none'
+        - from_day >= 1, to_day <= N_DAYS
+        - intervention in {none, rail_only, partial, full}
+        - Phases must not overlap
+        - Days not covered default to 'none'
     """
     # ── Validate schedule ──────────────────────────────────────────────────
     valid_interventions = {"none", "rail_only", "partial", "full"}
     for phase in schedule:
         assert "from_day" in phase and "to_day" in phase and "intervention" in phase, \
-            f"Phase missing required keys (from_day, to_day, intervention): {phase}"
+            f"Phase missing required keys: {phase}"
         assert phase["from_day"] >= 1, \
             f"from_day must be >= 1, got {phase['from_day']}"
         assert phase["to_day"] <= N_DAYS, \
@@ -652,9 +754,7 @@ def run_phased_simulation(
         "Schedule has overlapping phases — each day must appear in at most one phase"
 
     # ── Normalize origin city ──────────────────────────────────────────────
-    # Alias resolution must happen before the CITIES lookup.
-    # THRISSUR and THIRUVANANTHAPURAM were removed from CITIES (17→15 node fix).
-    # THRISSUR is aliased to Kochi; THIRUVANANTHAPURAM has no alias.
+    # THRISSUR → Kochi alias (THRISSUR removed from CITIES in 17→15 node fix)
     CITY_ALIASES = {"THRISSUR": "Kochi"}
     origin_city = CITY_ALIASES.get(origin_city.strip().upper(), origin_city)
 
@@ -671,10 +771,12 @@ def run_phased_simulation(
     print(f"[phased] schedule: {schedule}")
     print(f"[phased] label: '{label}'")
 
-    # ── Load profile and matrix ────────────────────────────────────────────
+    # ── Load profile and matrices ──────────────────────────────────────────
     profile = get_latest_pathogen_profile(scenario_id)
-    names, W_composite_base, edge_types = build_composite_matrix(
-        meta_edges_path=meta_edges_path, dgca_path=dgca_path
+    names, matrices = build_composite_matrix(
+        meta_edges_path=meta_edges_path,
+        dgca_path=dgca_path,
+        irctc_path=irctc_path
     )
 
     # ── QMC parameter sampling (identical to run_simulation) ──────────────
@@ -689,83 +791,79 @@ def run_phased_simulation(
         c = (mode - low) / scale
         return triang.ppf(u, c=c, loc=low, scale=scale)
 
-    r0_samples = to_triang(
-        uniform_samples[:, 0],
-        profile["r0_low"], profile["r0_most_likely"], profile["r0_high"]
-    )
-    inc_samples = to_triang(
-        uniform_samples[:, 1],
-        profile["incubation_days_low"], profile["incubation_days_most_likely"],
-        profile["incubation_days_high"]
-    )
-    cfr_samples = to_triang(
-        uniform_samples[:, 2],
-        profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"]
-    )
+    r0_samples  = to_triang(uniform_samples[:, 0],
+                             profile["r0_low"], profile["r0_most_likely"], profile["r0_high"])
+    inc_samples = to_triang(uniform_samples[:, 1],
+                             profile["incubation_days_low"],
+                             profile["incubation_days_most_likely"],
+                             profile["incubation_days_high"])
+    cfr_samples = to_triang(uniform_samples[:, 2],
+                             profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"])
+
     if "infectious_period_most_likely" in profile:
-        inf_samples = to_triang(
-            uniform_samples[:, 3],
-            profile["infectious_period_low"], profile["infectious_period_most_likely"],
-            profile["infectious_period_high"]
-        )
+        inf_samples = to_triang(uniform_samples[:, 3],
+                                profile["infectious_period_low"],
+                                profile["infectious_period_most_likely"],
+                                profile["infectious_period_high"])
     else:
         inf_samples = np.full(n_iterations, 7.0)
 
     # ── MC loop ────────────────────────────────────────────────────────────
     print(f"[phased] Running {n_iterations} MC iterations...")
-    all_infected = np.zeros((n_iterations, N_DAYS))
-    all_deaths = np.zeros((n_iterations, N_DAYS))
+    all_infected       = np.zeros((n_iterations, N_DAYS))
+    all_deaths         = np.zeros((n_iterations, N_DAYS))
     all_new_infections = np.zeros((n_iterations, N_DAYS))
-    all_city_active = np.zeros((n_iterations, N_DAYS, len(names)))
+    all_city_active    = np.zeros((n_iterations, N_DAYS, len(names)))
 
     seed_sequence = np.random.SeedSequence(42)
-    child_seeds = seed_sequence.spawn(n_iterations)
+    child_seeds   = seed_sequence.spawn(n_iterations)
 
     for it in range(n_iterations):
         rng = np.random.default_rng(child_seeds[it])
         inf, dth, new_inf, city_act = run_phased_mc_iteration(
-            names, W_composite_base, edge_types, origin_city, schedule,
+            names, matrices, origin_city, schedule,
             r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
             rng
         )
-        all_infected[it] = inf
-        all_deaths[it] = dth
+        all_infected[it]       = inf
+        all_deaths[it]         = dth
         all_new_infections[it] = new_inf
-        all_city_active[it] = city_act
+        all_city_active[it]    = city_act
 
     # ── Assemble rows ──────────────────────────────────────────────────────
     seird_rows = []
-    city_rows = []
+    city_rows  = []
 
     for day in range(N_DAYS):
         seird_rows.append({
-            "scenario_id": scenario_id,
+            "scenario_id":              scenario_id,
             "pathogen_profile_version": profile["version"],
-            "intervention_type": label,
-            "day": day + 1,
-            "infected_p10": float(np.percentile(all_infected[:, day], 10)),
-            "infected_p50": float(np.percentile(all_infected[:, day], 50)),
-            "infected_p90": float(np.percentile(all_infected[:, day], 90)),
-            "deaths_p10": float(np.percentile(all_deaths[:, day], 10)),
-            "deaths_p50": float(np.percentile(all_deaths[:, day], 50)),
-            "deaths_p90": float(np.percentile(all_deaths[:, day], 90)),
-            "trajectory_sample": all_infected[:, day].tolist(),
-            "new_infections_trajectory_sample": all_new_infections[:, day].tolist(),
+            "intervention_type":        label,
+            "day":                      day + 1,
+            "infected_p10":  float(np.percentile(all_infected[:, day], 10)),
+            "infected_p50":  float(np.percentile(all_infected[:, day], 50)),
+            "infected_p90":  float(np.percentile(all_infected[:, day], 90)),
+            "deaths_p10":    float(np.percentile(all_deaths[:, day], 10)),
+            "deaths_p50":    float(np.percentile(all_deaths[:, day], 50)),
+            "deaths_p90":    float(np.percentile(all_deaths[:, day], 90)),
+            "trajectory_sample":
+                all_infected[:, day].tolist(),
+            "new_infections_trajectory_sample":
+                all_new_infections[:, day].tolist(),
         })
         for ci, city in enumerate(names):
             city_rows.append({
-                "scenario_id": scenario_id,
+                "scenario_id":              scenario_id,
                 "pathogen_profile_version": profile["version"],
-                "intervention_type": label,
-                "city": city,
-                "day": day + 1,
+                "intervention_type":        label,
+                "city":                     city,
+                "day":                      day + 1,
                 "active_cases_p10": float(np.percentile(all_city_active[:, day, ci], 10)),
                 "active_cases_p50": float(np.percentile(all_city_active[:, day, ci], 50)),
                 "active_cases_p90": float(np.percentile(all_city_active[:, day, ci], 90)),
             })
 
     # ── Write to Supabase ──────────────────────────────────────────────────
-  # ── Write to Supabase ──────────────────────────────────────────────────
     register_intervention_type(label)
     print(f"  [done] intervention_type '{label}' registered in lookup table")
 
