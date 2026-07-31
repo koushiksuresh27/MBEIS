@@ -297,6 +297,33 @@ export default function AnalystView() {
     return combinedData;
   }, [data]);
 
+  // Compute Rt over time from infected_p50
+  const rtChartData = useMemo(() => {
+    if (!data || Object.keys(data).length === 0) return [];
+    const infectiousDays = 7.0;
+    const result = [];
+
+    for (let day = 2; day <= 179; day++) {
+      const dayObj: any = { day };
+      dynamicInterventions.forEach(inv => {
+        const invData = data[inv.key] || [];
+        const prev = invData.find(d => d.day === day - 1);
+        const curr = invData.find(d => d.day === day);
+        const next = invData.find(d => d.day === day + 1);
+        if (prev && curr && next && curr.infected_p50 > 10) {
+          // Central difference smoothed Rt estimate
+          const growthRate = (next.infected_p50 - prev.infected_p50) / (2 * curr.infected_p50);
+          const rt = 1 + growthRate * infectiousDays;
+          dayObj[`${inv.key}_rt`] = Math.max(0, Math.min(rt, 6));
+        } else {
+          dayObj[`${inv.key}_rt`] = null;
+        }
+      });
+      result.push(dayObj);
+    }
+    return result;
+  }, [data]);
+
   // Transform data for Recharts: array of objects by week
   const resourceChartData = useMemo(() => {
     if (!resourceData || Object.keys(resourceData).length === 0) return [];
@@ -322,12 +349,16 @@ export default function AnalystView() {
   const summaryStats = useMemo(() => {
     if (!data || Object.keys(data).length === 0) return null;
 
-    const stats: Record<string, { peakVal: number, peakDay: number, day180Val: number }> = {};
+    const stats: Record<string, { peakVal: number, peakDay: number, peakDayP10: number, peakDayP90: number, day180Val: number }> = {};
 
     dynamicInterventions.forEach(inv => {
       const invData = data[inv.key] || [];
       let peakVal = 0;
       let peakDay = 0;
+      let peakDayP10 = 0;
+      let peakDayP90 = 0;
+      let peakP10 = 0;
+      let peakP90 = 0;
       let day180Val = 0;
 
       invData.forEach(d => {
@@ -335,12 +366,25 @@ export default function AnalystView() {
           peakVal = d.infected_p50;
           peakDay = d.day;
         }
+        if (d.infected_p10 > peakP10) {
+          peakP10 = d.infected_p10;
+          peakDayP10 = d.day;
+        }
+        if (d.infected_p90 > peakP90) {
+          peakP90 = d.infected_p90;
+          peakDayP90 = d.day;
+        }
         if (d.day === 180) {
           day180Val = d.infected_p50;
         }
       });
 
-      stats[inv.key] = { peakVal, peakDay, day180Val };
+      // P10 trajectory peaks later (pessimistic), P90 peaks earlier (optimistic)
+      // Show range as min(P90 peak day) to max(P10 peak day)
+      const earlyPeak = Math.min(peakDayP90, peakDay, peakDayP10);
+      const latePeak = Math.max(peakDayP90, peakDay, peakDayP10);
+
+      stats[inv.key] = { peakVal, peakDay, peakDayP10: earlyPeak, peakDayP90: latePeak, day180Val };
     });
 
     return stats;
@@ -569,8 +613,13 @@ export default function AnalystView() {
                         {Math.round(stats.peakVal).toLocaleString()}
                       </div>
                       <p className="text-xs text-on-surface-variant mt-1 font-sans">
-                        Peak active (Day {stats.peakDay})
+                        Peak active · Day {stats.peakDay}
                       </p>
+                      {stats.peakDayP10 !== stats.peakDayP90 && (
+                        <p className="text-xs text-on-surface-variant opacity-60 font-mono mt-0.5">
+                          Expected Day {stats.peakDayP10}–{stats.peakDayP90}
+                        </p>
+                      )}
                     </div>
                     <div className="pt-3 border-t border-outline/50">
                       <div className="text-lg font-semibold text-on-background font-mono">
@@ -637,7 +686,80 @@ export default function AnalystView() {
           </div>
         </div>
 
-        <DerivationBasisInspector scenarioId={SCENARIO_ID} />
+          {/* Rt Chart Card */}
+          <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-on-background font-sans">Effective Reproduction Number (Rₜ)</h3>
+                <p className="text-xs text-on-surface-variant font-mono mt-1">Rₜ &gt; 1 = epidemic growing · Rₜ &lt; 1 = epidemic shrinking · Rₜ = 1 = stable</p>
+              </div>
+            </div>
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={rtChartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline)" vertical={false} opacity={0.5} />
+                  <XAxis
+                    dataKey="day"
+                    ticks={[1, 30, 60, 90, 120, 150, 180]}
+                    stroke="var(--color-on-surface-variant)"
+                    tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
+                    label={{ value: 'Day', position: 'insideBottom', offset: -10, fill: 'var(--color-on-surface-variant)' }}
+                  />
+                  <YAxis
+                    stroke="var(--color-on-surface-variant)"
+                    tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
+                    domain={[0, 4]}
+                    tickFormatter={(val) => val.toFixed(1)}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }: any) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="bg-surface p-3 border border-outline rounded-lg shadow-lg">
+                            <p className="font-mono text-sm text-on-surface mb-2 font-bold border-b border-outline pb-1">Day {label}</p>
+                            {payload.map((entry: any, index: number) => {
+                              if (!entry.value) return null;
+                              const invKey = entry.dataKey.replace('_rt', '');
+                              const invInfo = dynamicInterventions.find(i => i.key === invKey);
+                              return (
+                                <div key={index} className="flex items-center gap-2 text-sm font-mono text-on-surface">
+                                  <span className="w-3 h-3 inline-block rounded-full" style={{ backgroundColor: entry.stroke }}></span>
+                                  <span className="font-medium flex-1">{invInfo?.label}:</span>
+                                  <span>Rₜ = {Number(entry.value).toFixed(2)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <ReferenceLine
+                    y={1}
+                    stroke="var(--color-error)"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    label={{ position: 'right', value: 'Rₜ = 1', fill: 'var(--color-error)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+                  />
+                  {dynamicInterventions.map(inv => activeLines[inv.key] && (
+                    <Line
+                      key={`${inv.key}-rt`}
+                      type="monotone"
+                      dataKey={`${inv.key}_rt`}
+                      stroke={inv.color}
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                      activeDot={{ r: 4 }}
+                    />
+                  ))}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <DerivationBasisInspector scenarioId={SCENARIO_ID} />
 
         {/* Resource Projections Chart Card */}
         <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm">

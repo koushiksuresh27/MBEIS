@@ -452,28 +452,28 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
           );
         })()}
 
-        {/* Section 1: Intervention Selector */}
-        <section className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-wrap gap-2">
-          {dynamicInterventions.map(inv => {
-            const isActive = activeLines[inv.key];
-            return (
-              <button
-                key={inv.key}
-                onClick={() => toggleLine(inv.key)}
-                className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full transition-colors border ${isActive
-                  ? 'bg-surface border-outline text-on-surface'
-                  : 'bg-transparent border-outline/50 text-on-surface-variant opacity-60'
+        {/* Section 2: National Snapshot Cards with inline toggles */}
+        <section className="bg-surface-variant rounded-xl border border-outline shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-outline flex flex-wrap gap-2">
+            {dynamicInterventions.map(inv => {
+              const isActive = activeLines[inv.key];
+              return (
+                <button
+                  key={inv.key}
+                  onClick={() => toggleLine(inv.key)}
+                  className={`flex items-center gap-2 text-xs px-2.5 py-1 rounded-full transition-colors border ${
+                    isActive
+                      ? 'bg-surface border-outline text-on-surface'
+                      : 'bg-transparent border-outline/50 text-on-surface-variant opacity-50'
                   }`}
-              >
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: inv.color }}></span>
-                <span className="font-mono font-medium">{inv.label}</span>
-              </button>
-            );
-          })}
-        </section>
-
-        {/* Section 2: National Snapshot Cards */}
-        <section className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.length}, minmax(0, 1fr))` }}>
+                >
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: inv.color }}></span>
+                  <span className="font-mono font-medium">{inv.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="grid gap-0 divide-x divide-outline" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.filter(inv => activeLines[inv.key]).length}, minmax(0, 1fr))` }}>
           {dynamicInterventions.map(inv => {
             if (!activeLines[inv.key]) return null;
             const stat = nationalStats[inv.key];
@@ -486,7 +486,7 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
             return (
               <div
                 key={`national-${inv.key}`}
-                className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-col gap-4"
+                className="p-4 flex flex-col gap-3 bg-surface-variant"
                 style={{}}
               >
                 <div className="flex items-center gap-2">
@@ -509,6 +509,7 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
               </div>
             );
           })}
+          </div>
         </section>
 
         {/* Section 3: City Status Table */}
