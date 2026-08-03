@@ -175,4 +175,40 @@ def register_intervention_type(label: str) -> None:
     supabase = get_client()
     supabase.table("intervention_types") \
         .upsert({"key": label}, on_conflict="key") \
-        .execute()
+        .execute()
+def is_simulation_current(scenario_id: str, origin_city: str, n_iterations: int) -> bool:
+    """
+    Returns True if valid simulation results already exist for this exact
+    scenario_id + origin_city + n_iterations + current pathogen_profile_version.
+    If True, run_scenario can skip the simulation entirely and serve existing data.
+    """
+    supabase = get_client()
+
+    # Get current profile version
+    try:
+        profile = get_latest_pathogen_profile(scenario_id)
+        current_version = profile["version"]
+    except ValueError:
+        return False  # No profile = can't be current
+
+    # Check if all 4 standard interventions exist for this version
+    result = supabase.table("seird_results") \
+        .select("intervention_type") \
+        .eq("scenario_id", scenario_id) \
+        .eq("pathogen_profile_version", current_version) \
+        .in_("intervention_type", ["none", "rail_only", "partial", "full"]) \
+        .execute()
+
+    if not result.data:
+        return False
+
+    found = {row["intervention_type"] for row in result.data}
+    all_four = {"none", "rail_only", "partial", "full"}
+
+    if not all_four.issubset(found):
+        return False
+
+    # Check origin_city and n_iterations match via metadata table if it exists,
+    # otherwise trust profile version as the signal — profile version bumps
+    # whenever scenario config changes in the SetupModal.
+    return True

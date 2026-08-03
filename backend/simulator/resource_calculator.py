@@ -1,8 +1,14 @@
 import math
 
 # Oxygen flow rate constants [G1]
-ICU_O2_FLOW_LPM = 24        # litres per minute, per ICU patient
-NON_ICU_O2_FLOW_LPM = 10    # litres per minute, per non-ICU oxygen patient
+# Default oxygen flow rates for respiratory pathogens
+# Source: MoHFW Clinical Management Protocol for COVID-19 v6 (2021)
+# WHO Oxygen Sources and Distribution for COVID-19 Treatment Centres (2021)
+# Valid for any respiratory pathogen where hypoxemia is primary ICU driver
+ICU_O2_FLOW_LPM_RESPIRATORY     = 24   # high-flow mask / HFNC
+NON_ICU_O2_FLOW_LPM_RESPIRATORY = 10   # simple mask
+ICU_O2_FLOW_LPM_NON_RESPIRATORY = 2    # minimal supplemental only
+NON_ICU_O2_FLOW_LPM_NON_RESPIRATORY = 0
 LPM_TO_MT_PER_DAY = 0.002058  # conversion factor
 NATIONAL_O2_CEILING_MT = 9690  # MT/day, fixed [G1] constant[cite: 1]
 
@@ -20,6 +26,17 @@ def calculate_resource_projections(city_status_rows, scenario_id, profile):
     
     # 1. Calculate dynamic severity shares based on the profile's CFR[cite: 1]
     cfr = profile.get("cfr_most_likely", COVID_REF_CFR)
+    # Respiratory flag — controls oxygen demand calculation
+    # Non-respiratory pathogens (cholera, Ebola) need ICU/beds but not high-flow O2
+    is_respiratory = profile.get("is_respiratory", True)
+    ICU_O2_FLOW_LPM = (
+        ICU_O2_FLOW_LPM_RESPIRATORY if is_respiratory 
+        else ICU_O2_FLOW_LPM_NON_RESPIRATORY
+    )
+    NON_ICU_O2_FLOW_LPM = (
+        NON_ICU_O2_FLOW_LPM_RESPIRATORY if is_respiratory 
+        else NON_ICU_O2_FLOW_LPM_NON_RESPIRATORY
+    )
     severity_ratio = clamp(cfr / COVID_REF_CFR, 0.3, 15)
     
     icu_share = clamp(0.025 * severity_ratio, 0.025, 0.50)
