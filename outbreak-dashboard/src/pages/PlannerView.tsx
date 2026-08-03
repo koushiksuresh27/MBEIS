@@ -3,6 +3,7 @@ import type { ScenarioConfig } from '../types/scenario';
 import { useSeirdResults } from '../hooks/useSeirdResults';
 import { useResourceProjections } from '../hooks/useResourceProjections';
 import { useCityStatus } from '../hooks/useCityStatus';
+import { supabase } from '../lib/supabase';
 
 const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
 
@@ -99,6 +100,37 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
     } finally {
       setRunning(false);
     }
+  };
+
+  const deleteAllCustomPlans = async () => {
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const customKeys = dynamicInterventions
+      .filter(inv => !standardKeys.has(inv.key))
+      .map(inv => inv.key);
+
+    if (customKeys.length === 0) return;
+    if (!window.confirm(`Delete all ${customKeys.length} custom plan(s)? This cannot be undone.`)) return;
+
+    await supabase.from('seird_results')
+      .delete()
+      .eq('scenario_id', SCENARIO_ID)
+      .in('intervention_type', customKeys);
+
+    await supabase.from('city_status')
+      .delete()
+      .eq('scenario_id', SCENARIO_ID)
+      .in('intervention_type', customKeys);
+
+    await supabase.from('resource_projections')
+      .delete()
+      .eq('scenario_id', SCENARIO_ID)
+      .in('intervention_type', customKeys);
+
+    await supabase.from('intervention_types')
+      .delete()
+      .in('key', customKeys);
+
+    window.location.reload();
   };
 
   const updatePhase = (idx: number, field: string, value: string | number) => {
@@ -290,7 +322,21 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
 
           {/* RIGHT: Saved Custom Plans + Compare */}
           <div className="bg-surface-variant rounded-xl border border-outline p-4 shadow-sm flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-on-background font-sans">Saved Custom Plans</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-on-background font-sans">Saved Custom Plans</h3>
+              {(() => {
+                const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+                const customCount = dynamicInterventions.filter(inv => !standardKeys.has(inv.key)).length;
+                return customCount > 0 ? (
+                  <button
+                    onClick={deleteAllCustomPlans}
+                    className="text-xs font-mono text-[var(--color-status-red)] hover:opacity-80 transition-opacity border border-[var(--color-status-red)]/30 rounded px-2 py-0.5"
+                  >
+                    Clear All
+                  </button>
+                ) : null;
+              })()}
+            </div>
 
             {(() => {
               const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
@@ -321,20 +367,22 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => setCompareA(isSelectedA ? null : plan.key)}
-                            className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${isSelectedA ? 'bg-primary text-on-primary border-primary' : 'bg-surface-variant border-outline text-on-surface-variant hover:border-primary hover:text-primary'}`}
-                          >
-                            A
-                          </button>
-                          <button
-                            onClick={() => setCompareB(isSelectedB ? null : plan.key)}
-                            className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${isSelectedB ? 'bg-primary text-on-primary border-primary' : 'bg-surface-variant border-outline text-on-surface-variant hover:border-primary hover:text-primary'}`}
-                          >
-                            B
-                          </button>
-                        </div>
+                        {customPlans.length >= 2 && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setCompareA(isSelectedA ? null : plan.key)}
+                              className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${isSelectedA ? 'bg-primary text-on-primary border-primary' : 'bg-surface-variant border-outline text-on-surface-variant hover:border-primary hover:text-primary'}`}
+                            >
+                              A
+                            </button>
+                            <button
+                              onClick={() => setCompareB(isSelectedB ? null : plan.key)}
+                              className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${isSelectedB ? 'bg-primary text-on-primary border-primary' : 'bg-surface-variant border-outline text-on-surface-variant hover:border-primary hover:text-primary'}`}
+                            >
+                              B
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -561,7 +609,7 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
               National Oxygen Capacity Ceiling: <span className="font-bold">{resourceStats.capacityCeiling.toLocaleString()} MT/day</span>
             </div>
           </div>
-          <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.length}, minmax(0, 1fr))` }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.filter(inv => activeLines[inv.key]).length}, minmax(0, 1fr))` }}>
             {dynamicInterventions.map(inv => {
               if (!activeLines[inv.key]) return null;
               const res = resourceStats.resources[inv.key];
