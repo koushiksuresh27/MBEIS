@@ -10,6 +10,7 @@ interface BubbleMapProps {
   simulationDay: number;
   onDayChange: (day: number | ((prev: number) => number)) => void;
   onInterventionChange: (intervention: string) => void;
+  customInterventions?: Array<{ key: string; label: string; color: string }>;
 }
 
 const INTERVENTIONS = [
@@ -74,10 +75,17 @@ export default function BubbleMap({
   activeIntervention,
   simulationDay,
   onDayChange,
-  onInterventionChange
+  onInterventionChange,
+  customInterventions = []
 }: BubbleMapProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
+
+  const allInterventions = useMemo(() => {
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const extras = customInterventions.filter(i => !standardKeys.has(i.key));
+    return [...INTERVENTIONS, ...extras];
+  }, [customInterventions]);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -91,7 +99,7 @@ export default function BubbleMap({
       container: mapContainerRef.current,
       style: `https://api.maptiler.com/maps/basic-v2/style.json?key=${import.meta.env.VITE_MAPTILER_KEY}`,
       center: [82.5, 22.5], // rough India centroid
-      zoom: 3.8,
+      zoom: 3.3,
       minZoom: 3,
       maxZoom: 8,
     });
@@ -188,7 +196,7 @@ export default function BubbleMap({
         </div>
 
         <div className="flex gap-1.5 flex-wrap justify-end pointer-events-auto">
-          {INTERVENTIONS.map(inv => (
+          {allInterventions.map(inv => (
             <button
               key={inv.key}
               onClick={() => onInterventionChange(inv.key)}
@@ -366,7 +374,7 @@ export default function BubbleMap({
                 {selectedCityData.displayName}
               </h4>
               <p className="font-mono text-xs text-on-surface-variant mt-0.5">
-                Day {simulationDay} · {INTERVENTION_LABELS[activeIntervention]}
+                Day {simulationDay} · {allInterventions.find(i => i.key === activeIntervention)?.label ?? activeIntervention}
               </p>
             </div>
             <button
@@ -461,7 +469,7 @@ export default function BubbleMap({
           <span className="font-mono text-sm text-on-surface-variant shrink-0">
             Day <span className="text-on-background font-semibold">{simulationDay}</span>
             <span className="text-xs ml-2 opacity-60">
-              {simulationDay <= 32 ? '· Containment' : simulationDay <= 55 ? '· Exponential Liftoff' : `· ${INTERVENTION_LABELS[activeIntervention] ?? activeIntervention}`}
+              {simulationDay <= 32 ? '· Containment' : simulationDay <= 55 ? '· Exponential Liftoff' : `· ${allInterventions.find(i => i.key === activeIntervention)?.label ?? activeIntervention}`}
             </span>
           </span>
           <input

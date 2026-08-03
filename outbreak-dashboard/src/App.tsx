@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import AnalystView from './pages/AnalystView';
 import PlannerView from './pages/PlannerView';
 import BubbleMap from './components/analyst-view/BubbleMap';
@@ -28,6 +28,25 @@ function App() {
 
   const { data: cityData, loading: cityLoading } = useCityStatus(SCENARIO_ID);
   const { cityData: resourceCityData } = useResourceProjections(SCENARIO_ID);
+
+  const dynamicInterventions = useMemo(() => {
+    const firstCity = Object.values(cityData || {})[0];
+    const allKeys = firstCity ? Object.keys(firstCity) : [];
+    const standardKeys = new Set(['none', 'rail_only', 'partial', 'full']);
+    const customKeys = allKeys.filter(k => !standardKeys.has(k));
+    const customEntries = customKeys.map(k => ({
+      key: k,
+      label: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      color: '#7C3AED'
+    }));
+    return [
+      { key: 'none', label: 'Baseline', color: '#C62828' },
+      { key: 'rail_only', label: 'Transit Halt', color: '#F57F17' },
+      { key: 'partial', label: 'Partial Lockdown', color: '#2E4A8C' },
+      { key: 'full', label: 'Full Quarantine', color: '#2E7D32' },
+      ...customEntries
+    ];
+  }, [cityData]);
 
   useEffect(() => {
     if (isDark) {
@@ -132,6 +151,9 @@ function App() {
               simulationDay={mapDay}
               onDayChange={setMapDay}
               onInterventionChange={setMapIntervention}
+              customInterventions={dynamicInterventions.filter(
+                i => !['none','rail_only','partial','full'].includes(i.key)
+              )}
             />
             )}
           </div>

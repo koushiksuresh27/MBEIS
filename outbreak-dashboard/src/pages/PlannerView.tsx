@@ -137,6 +137,8 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
     setPhases(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p));
   };
 
+  console.log('[debug] resourceData keys:', Object.keys(resourceData || {}));
+  console.log('[debug] dynamicInterventions keys:', dynamicInterventions.map(i => i.key));
   const isLoading = seirdLoading || resLoading || !cityData;
   const hasError = seirdError || resError || cityError;
 
