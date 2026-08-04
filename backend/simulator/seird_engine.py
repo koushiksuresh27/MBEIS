@@ -206,6 +206,9 @@ def build_composite_matrix(
                 )
 
     # ── 1. Load road layer (meta_mobility_edges.csv) ───────────────────────
+    # raw_daily_travelers = Meta outbound fraction × city pop × radiation weight
+    # × NH multiplier. Real unit: travelers/day. Row-stochastic normalization
+    # is deferred to apply_row_stochastic_bound() so relative magnitudes survive.
     if os.path.exists(meta_edges_path):
         with open(meta_edges_path, newline='') as f:
             for row in csv.DictReader(f):
@@ -213,7 +216,7 @@ def build_composite_matrix(
                 tgt = row['target_node_id'].strip().upper()
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_raw_road[i, j] = float(row['normalized_terrestrial_weight'])
+                    W_raw_road[i, j] = float(row['raw_daily_travelers'])
     else:
         print(f"[engine] WARNING: meta_edges not found at {meta_edges_path}")
 
@@ -227,7 +230,7 @@ def build_composite_matrix(
                 tgt = city_aliases_dgca.get(row['CITY2'].strip().upper(), row['CITY2'].strip().upper())
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_aviation[i, j] = float(row['NORMALIZED'])
+                    W_aviation[i, j] = float(row['DAILY_AVG'])
                     W_aviation[j, i] = W_aviation[i, j]   # symmetric
     else:
         print(f"[engine] WARNING: DGCA file not found at {dgca_path}")
@@ -242,31 +245,43 @@ def build_composite_matrix(
                 tgt = row['target_node_id'].strip().upper()
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_rail[i, j] = float(row['normalized_rail_weight'])
+                    W_rail[i, j] = float(row['raw_weekly_capacity']) / 7.0
     else:
         print(f"[engine] WARNING: IRCTC file not found at {irctc_path}")
 
-    # ── 4. Apply calibrator physics ────────────────────────────────────────
-    # Distance decay applied to road only.
-    # Rail OD matrix implicitly encodes route distances via passenger volumes.
-    # Aviation is already a hub-spoke structure — no decay needed.
+   # ── 4. Apply calibrator physics ────────────────────────────────────────
+    # All three matrices now carry real units (travelers/day or passengers/day).
+    # Distance decay removed from road — raw_daily_travelers already encodes
+    # short-range dominance via T_i × radiation weight (Mumbai→Pune at 428k
+    # naturally dominates without any boost).
+    # apply_row_stochastic_bound normalizes each layer independently so that
+    # relative corridor magnitudes (road >> rail ≈ air) survive into the blend.
     calibrator = MobilityCalibrator()
-    W_road_decayed = calibrator.apply_distance_decay(W_raw_road, distance_matrix)
-
-    # Independent row-stochastic bounds per modal layer.
-    # Bounding each layer separately prevents short-range terrestrial dominance
-    # from eclipsing aviation on hub corridors.
-    W_road_final = calibrator.apply_row_stochastic_bound(W_road_decayed, capacities)
-    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,     capacities)
-    W_rail_final = calibrator.apply_row_stochastic_bound(W_rail,         capacities)
+    W_road_final = calibrator.apply_row_stochastic_bound(W_raw_road,  capacities)
+    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,  capacities)
+    W_rail_final = calibrator.apply_row_stochastic_bound(W_rail,      capacities)
 
     matrices = {
         'road': W_road_final,
         'rail': W_rail_final,
         'air':  W_air_final,
+        'raw': {
+            'road': W_raw_road,
+            'rail': W_rail,
+            'air':  W_aviation,
+        },
+        'capacities': capacities,
     }
 
     return names, matrices
+
+
+INTERVENTION_PARAMS = {
+    'none':      {'road': 1.00, 'rail': 1.00, 'air': 1.00, 'flow': 1.00},
+    'rail_only': {'road': 1.00, 'rail': 0.00, 'air': 1.00, 'flow': 0.60},
+    'partial':   {'road': 0.33, 'rail': 0.33, 'air': 0.33, 'flow': 0.33},
+    'full':      {'road': 0.05, 'rail': 0.00, 'air': 0.05, 'flow': 0.05},
+}
 
 
 def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
@@ -295,48 +310,23 @@ def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
     Escalation is monotone: each stricter intervention is a superset of
     restrictions from the one below it.
     """
-    W_road = matrices['road']
-    W_rail = matrices['rail']
-    W_air  = matrices['air']
-
-    if intervention_type == 'none':
-        # Inter-metro baseline (Top 15 Cities)
-        w_road = BASE_ROAD_SHARE        # 0.40
-        w_rail = BASE_RAIL_SHARE        # 0.40
-        w_air  = BASE_AIR_SHARE         # 0.20
-
-    elif intervention_type == 'rail_only':
-        # Transit Halt: Legal halt on passenger rail only.
-        # Road and Air are legally unrestricted (100% capacity).
-        # The SEIR-B layer will dynamically handle the behavioral drop in usage.
-        # Total: 60% legal baseline inter-metro capacity
-        w_road = BASE_ROAD_SHARE * 0.70 # 0.400
-        w_rail = BASE_RAIL_SHARE * 0.10  # 0.000
-        w_air  = BASE_AIR_SHARE  * 0.70  # 0.200
-
-    elif intervention_type == 'partial':
-        # Smart Lockdown: Strict legal capacity caps across all intercity modes.
-        # Enforced restriction to 33% capacity to maintain essential flow.
-        # Total: 33% legal baseline inter-metro capacity
-        w_road = BASE_ROAD_SHARE * 0.33  # 0.132
-        w_rail = BASE_RAIL_SHARE * 0.33  # 0.132
-        w_air  = BASE_AIR_SHARE  * 0.33  # 0.066
-
-    elif intervention_type == 'full':
-        # Strict Lockdown: Legal restriction to essential freight and emergency only.
-        # Total: 5% legal baseline inter-metro capacity
-        w_road = BASE_ROAD_SHARE * 0.10  # 0.040
-        w_rail = BASE_RAIL_SHARE * 0.00  # 0.000
-        w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
-    else:
-        # Unknown intervention — fall back to baseline with a warning
+    params = INTERVENTION_PARAMS.get(intervention_type, INTERVENTION_PARAMS['none'])
+    if intervention_type not in INTERVENTION_PARAMS:
         print(f"[engine] WARNING: unknown intervention_type '{intervention_type}', using 'none'")
-        w_road = BASE_ROAD_SHARE
-        w_rail = BASE_RAIL_SHARE
-        w_air  = BASE_AIR_SHARE
 
-    W_active = (w_road * W_road) + (w_rail * W_rail) + (w_air * W_air)
-    return W_active
+    raw        = matrices['raw']
+    capacities = matrices['capacities']
+
+    W_blended = (
+        BASE_ROAD_SHARE * params['road'] * raw['road']
+        + BASE_RAIL_SHARE * params['rail'] * raw['rail']
+        + BASE_AIR_SHARE  * params['air']  * raw['air']
+    )
+
+    row_sums = W_blended.sum(axis=1, keepdims=True) + 1e-9
+    W_final  = (W_blended / row_sums) * capacities
+    W_final *= params['flow']
+    return W_final
 
 
 def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, local_mult,
