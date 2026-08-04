@@ -1,7 +1,7 @@
 import argparse
 import sys
 from backend.simulator import seird_engine
-from backend.simulator.simulator_io import is_simulation_current
+# from backend.simulator.simulator_io import is_simulation_current  # TEMP: disabled for testing
 
 print("run_scenario.py started", flush=True)
 
@@ -18,17 +18,15 @@ if __name__ == "__main__":
     CITY_ALIASES = {"THRISSUR": "Kochi", "Thrissur": "Kochi"}
     origin_city = CITY_ALIASES.get(args.origin_city, args.origin_city)
 
-    # ── Cache check ────────────────────────────────────────────────────────
-    # Skip simulation entirely if valid results already exist for this
-    # scenario + profile version. Serves existing data instantly.
-    if is_simulation_current(args.scenario_id, origin_city, args.n_iterations):
-        print("intervention:none [cached]", flush=True)
-        print("intervention:rail_only [cached]", flush=True)
-        print("intervention:partial [cached]", flush=True)
-        print("intervention:full [cached]", flush=True)
-        print(f"[cache] All 4 interventions already computed for current profile version — skipping simulation", flush=True)
-        print(f"All 4 intervention types written for scenario {args.scenario_id}", flush=True)
-        sys.exit(0)
+    # ── Cache check (TEMP: disabled for testing — uncomment below to re-enable) ──
+    # if is_simulation_current(args.scenario_id, origin_city, args.n_iterations):
+    #     print("intervention:none [cached]", flush=True)
+    #     print("intervention:rail_only [cached]", flush=True)
+    #     print("intervention:partial [cached]", flush=True)
+    #     print("intervention:full [cached]", flush=True)
+    #     print(f"[cache] All 4 interventions already computed for current profile version — skipping simulation", flush=True)
+    #     print(f"All 4 intervention types written for scenario {args.scenario_id}", flush=True)
+    #     sys.exit(0)
 
     # ── Full simulation ────────────────────────────────────────────────────
     print("[engine] No cached results found — running full simulation", flush=True)

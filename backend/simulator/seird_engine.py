@@ -56,8 +56,8 @@ LOCAL_TRANSMISSION_MULTIPLIER = {
 # Modal share for inter-city passenger movement in India.
 # Source: NITI Aayog transport modal share estimates.
 # Road 50%, Rail 30%, Air 20% — used as baseline weights in apply_intervention.
-BASE_ROAD_SHARE = 0.50
-BASE_RAIL_SHARE = 0.30
+BASE_ROAD_SHARE = 0.40
+BASE_RAIL_SHARE = 0.40
 BASE_AIR_SHARE  = 0.20
 
 
@@ -300,46 +300,34 @@ def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
     W_air  = matrices['air']
 
     if intervention_type == 'none':
-        # Full baseline modal share
-        w_road = BASE_ROAD_SHARE        # 0.50
-        w_rail = BASE_RAIL_SHARE        # 0.30
+        # Inter-metro baseline (Top 15 Cities)
+        w_road = BASE_ROAD_SHARE        # 0.40
+        w_rail = BASE_RAIL_SHARE        # 0.40
         w_air  = BASE_AIR_SHARE         # 0.20
 
     elif intervention_type == 'rail_only':
-        # Transit Halt: all passenger movement stopped across all modes
-        # Only essential cargo, medical, repatriation movement active
-        # Road: 10% of baseline (0.50 × 0.10 = 0.050)
-        # Rail: 10% of baseline (0.30 × 0.10 = 0.030)
-        # Air:   5% of baseline (0.20 × 0.05 = 0.010)
-        # Total: 9% of baseline mobility
-        w_road = BASE_ROAD_SHARE * 0.10  # 0.050
-        w_rail = BASE_RAIL_SHARE * 0.10  # 0.030
-        w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
+        # Transit Halt: Legal halt on passenger rail only.
+        # Road and Air are legally unrestricted (100% capacity).
+        # The SEIR-B layer will dynamically handle the behavioral drop in usage.
+        # Total: 60% legal baseline inter-metro capacity
+        w_road = BASE_ROAD_SHARE * 0.70 # 0.400
+        w_rail = BASE_RAIL_SHARE * 0.10  # 0.000
+        w_air  = BASE_AIR_SHARE  * 0.70  # 0.200
 
     elif intervention_type == 'partial':
-        # Partial Lockdown (Option B): significant restriction, economy partial
-        # Flights reduced not grounded, rail at reduced frequency, road restricted
-        # Road: 40% of baseline (0.50 × 0.40 = 0.200)
-        # Rail: 30% of baseline (0.30 × 0.30 = 0.090)  (wait — see note below)
-        # Air:  20% of baseline (0.20 × 0.20 = 0.040)
-        # Total: 33% of baseline mobility
-        # NOTE: partial keeps air at 20% — flights reduced but not grounded
-        w_road = BASE_ROAD_SHARE * 0.40  # 0.200
-        w_rail = BASE_RAIL_SHARE * 0.30  # 0.090
-        w_air  = BASE_AIR_SHARE  * 0.20  # 0.040
+        # Smart Lockdown: Strict legal capacity caps across all intercity modes.
+        # Enforced restriction to 33% capacity to maintain essential flow.
+        # Total: 33% legal baseline inter-metro capacity
+        w_road = BASE_ROAD_SHARE * 0.33  # 0.132
+        w_rail = BASE_RAIL_SHARE * 0.33  # 0.132
+        w_air  = BASE_AIR_SHARE  * 0.33  # 0.066
 
     elif intervention_type == 'full':
-        # Full Quarantine: near-complete shutdown
-        # Only supply chain road and cargo/medical air active
-        # Rail completely stopped
-        # Road:  15% of baseline (0.50 × 0.15 = 0.075)
-        # Rail:   0% — completely stopped
-        # Air:    5% of baseline (0.20 × 0.05 = 0.010)
-        # Total: 8.5% of baseline mobility
-        w_road = BASE_ROAD_SHARE * 0.15  # 0.075
-        w_rail = 0.00
+        # Strict Lockdown: Legal restriction to essential freight and emergency only.
+        # Total: 5% legal baseline inter-metro capacity
+        w_road = BASE_ROAD_SHARE * 0.10  # 0.040
+        w_rail = BASE_RAIL_SHARE * 0.00  # 0.000
         w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
-
     else:
         # Unknown intervention — fall back to baseline with a warning
         print(f"[engine] WARNING: unknown intervention_type '{intervention_type}', using 'none'")
