@@ -4,7 +4,9 @@ import PlannerView from './pages/PlannerView';
 import BubbleMap from './components/analyst-view/BubbleMap';
 import { useCityStatus } from './hooks/useCityStatus';
 import { useResourceProjections } from './hooks/useResourceProjections';
+import { useSeirdResults } from './hooks/useSeirdResults';
 import SetupModal from './components/SetupModal';
+import ErisDrawer from './components/ErisDrawer';
 import type { ScenarioConfig } from './types/scenario';
 
 const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
@@ -17,6 +19,7 @@ function App() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isFirstRun, setIsFirstRun] = useState(false);
+  const [isErisOpen, setIsErisOpen] = useState(false);
   const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig | null>(null);
 
   const handleSimulationComplete = (config: ScenarioConfig) => {
@@ -26,8 +29,9 @@ function App() {
     window.dispatchEvent(new CustomEvent('simulation-complete'));
   };
 
+  const { data: seirdData } = useSeirdResults(SCENARIO_ID);
   const { data: cityData, loading: cityLoading } = useCityStatus(SCENARIO_ID);
-  const { cityData: resourceCityData } = useResourceProjections(SCENARIO_ID);
+  const { data: resourceData, cityData: resourceCityData } = useResourceProjections(SCENARIO_ID);
 
   const dynamicInterventions = useMemo(() => {
     const firstCity = Object.values(cityData || {})[0];
@@ -126,9 +130,13 @@ function App() {
                 New Scenario
               </button>
             )}
-            <div className="bg-tertiary-fixed rounded-lg border border-tertiary/20 px-3 py-1.5 shadow-sm text-xs font-medium text-on-tertiary-fixed">
-              [ LLM Copilot — Kishore/Sujay ]
-            </div>
+            <button
+              onClick={() => setIsErisOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700 rounded-lg border border-blue-500/50 px-3 py-1.5 shadow-sm text-xs font-medium text-white transition-colors flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              ERIS AI Assistant
+            </button>
           </div>
         </div>
       </header>
@@ -136,7 +144,7 @@ function App() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative">
         {view === 'planner' ? (
-          <PlannerView scenarioConfig={scenarioConfig} />
+          <PlannerView seirdData={seirdData || {}} cityData={cityData || {}} resourceData={resourceData || {}} resourceCityData={resourceCityData || {}} scenarioConfig={scenarioConfig} />
         ) : view === 'map' ? (
           <div className="w-full h-full">
             {cityLoading ? (
@@ -158,7 +166,7 @@ function App() {
             )}
           </div>
         ) : (
-          <AnalystView />
+          <AnalystView seirdData={seirdData || {}} cityData={cityData || {}} resourceData={resourceData || {}} />
         )}
       </div>
       <SetupModal
@@ -167,6 +175,11 @@ function App() {
         onSimulationComplete={handleSimulationComplete}
         isFirstRun={isFirstRun}
         previousConfig={scenarioConfig ?? undefined}
+      />
+      <ErisDrawer 
+        isOpen={isErisOpen} 
+        onClose={() => setIsErisOpen(false)} 
+        scenarioId={scenarioConfig?.scenarioId || SCENARIO_ID}
       />
     </div>
   );

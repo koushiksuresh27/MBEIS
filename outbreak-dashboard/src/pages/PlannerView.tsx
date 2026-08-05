@@ -1,8 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { ScenarioConfig } from '../types/scenario';
-import { useSeirdResults } from '../hooks/useSeirdResults';
-import { useResourceProjections } from '../hooks/useResourceProjections';
-import { useCityStatus } from '../hooks/useCityStatus';
 import { supabase } from '../lib/supabase';
 
 const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
@@ -14,10 +11,15 @@ const INTERVENTIONS = [
   { key: 'full', label: 'Full Quarantine', color: 'var(--color-status-green)' }
 ];
 
-export default function PlannerView({ scenarioConfig }: { scenarioConfig: ScenarioConfig | null }) {
-  const { data: seirdData, loading: seirdLoading, error: seirdError } = useSeirdResults(SCENARIO_ID);
-  const { data: resourceData, cityData: resourceCityData, loading: resLoading, error: resError } = useResourceProjections(SCENARIO_ID);
-  const { data: cityData, error: cityError } = useCityStatus(SCENARIO_ID);
+interface Props {
+  seirdData: Record<string, any[]>;
+  cityData: Record<string, Record<string, any[]>>;
+  resourceData: Record<string, any[]>;
+  scenarioConfig?: ScenarioConfig | null;
+  resourceCityData?: Record<string, any[]>;
+}
+
+export default function PlannerView({ scenarioConfig, seirdData, cityData, resourceData, resourceCityData = {} }: Props) {
 
   const [activeLines, setActiveLines] = useState<Record<string, boolean>>({
     none: true,
@@ -46,6 +48,10 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
     return [...INTERVENTIONS, ...customEntries];
   }, [seirdData]);
 
+  const cityList = useMemo(() =>
+    Object.keys(cityData || {}).map(c => c.toUpperCase()).sort(),
+  [cityData]);
+
   const toggleLine = (key: string) => {
     setActiveLines(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -73,6 +79,17 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
   const [compareB, setCompareB] = useState<string | null>(null);
   const [showCompare, setShowCompare] = useState(false);
 
+  interface EdgeCut {
+    src: string;
+    tgt: string;
+    modes: string[];
+  }
+
+  const [edgeCuts, setEdgeCuts] = useState<EdgeCut[]>([]);
+  const [ecSrc, setEcSrc] = useState('');
+  const [ecTgt, setEcTgt] = useState('');
+  const [ecModes, setEcModes] = useState<string[]>(['road']);
+
   const runPhasedSim = async () => {
     setRunning(true);
     setRunError(null);
@@ -88,6 +105,7 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
           schedule: phases,
           label,
           n_iterations: scenarioConfig?.nIterations ?? 128,
+          ...(edgeCuts.length > 0 ? { edge_cuts: edgeCuts } : {}),
         }),
       });
       if (!res.ok) {
@@ -139,8 +157,7 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
 
   console.log('[debug] resourceData keys:', Object.keys(resourceData || {}));
   console.log('[debug] dynamicInterventions keys:', dynamicInterventions.map(i => i.key));
-  const isLoading = seirdLoading || resLoading || !cityData;
-  const hasError = seirdError || resError || cityError;
+  const isLoading = !seirdData || !resourceData || !cityData;
 
   // 1. Compute National Snapshot Stats
   const nationalStats = useMemo(() => {
@@ -237,8 +254,27 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
     return 'text-[var(--color-status-green)]';
   };
 
-  if (isLoading) return <div className="p-8 text-on-background font-mono">Loading simulation results...</div>;
-  if (hasError) return <div className="p-8 text-[var(--color-error)] font-mono">Failed to load data.</div>;
+  // 1. Still fetching — show loader
+  if (isLoading)
+    return (
+      <div className="p-8 text-on-background font-mono">
+        Loading simulation results...
+      </div>
+    );
+
+  // 2. Fetch done but no data — show empty state
+  if (Object.keys(seirdData).length === 0)
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-8">
+        <span className="text-2xl">📭</span>
+        <p className="text-sm font-mono text-on-surface-variant">
+          No simulation data yet.
+        </p>
+        <p className="text-xs font-mono text-on-surface-variant opacity-60">
+          Configure a plan above and hit Run to generate results.
+        </p>
+      </div>
+    );
 
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
@@ -308,6 +344,124 @@ export default function PlannerView({ scenarioConfig }: { scenarioConfig: Scenar
                   </select>
                 </div>
               ))}
+            </div>
+
+            {/* Edge Cuts */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-on-surface-variant font-mono uppercase tracking-wider">
+                  Edge Cuts
+                </span>
+                <span className="text-xs font-mono text-on-surface-variant opacity-50">
+                  Block transport links between cities
+                </span>
+              </div>
+
+              {/* Inline add form */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <select
+                  value={ecSrc}
+                  onChange={e => setEcSrc(e.target.value)}
+                  className="bg-surface border border-outline rounded px-2 py-0.5 text-xs font-mono text-on-surface focus:outline-none flex-1 min-w-[90px]"
+                >
+                  <option value="">Src</option>
+                  {cityList.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                <span className="text-xs text-on-surface-variant font-mono shrink-0">→</span>
+
+                <select
+                  value={ecTgt}
+                  onChange={e => setEcTgt(e.target.value)}
+                  className="bg-surface border border-outline rounded px-2 py-0.5 text-xs font-mono text-on-surface focus:outline-none flex-1 min-w-[90px]"
+                >
+                  <option value="">Tgt</option>
+                  {cityList.filter(c => c !== ecSrc).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                {/* Mode toggles */}
+                {(['road', 'rail', 'air'] as const).map(mode => {
+                  const active = ecModes.includes(mode);
+                  const modeColor: Record<string, string> = {
+                    road: 'var(--color-status-amber)',
+                    rail: 'var(--color-primary)',
+                    air: '#7C3AED',
+                  };
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => setEcModes(prev =>
+                        prev.includes(mode)
+                          ? prev.length > 1 ? prev.filter(m => m !== mode) : prev
+                          : [...prev, mode]
+                      )}
+                      className="text-xs font-mono px-2 py-0.5 rounded border transition-colors shrink-0"
+                      style={active
+                        ? { backgroundColor: modeColor[mode], borderColor: modeColor[mode], color: '#fff' }
+                        : { backgroundColor: 'transparent', borderColor: 'var(--color-outline)', color: 'var(--color-on-surface-variant)' }
+                      }
+                    >
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => {
+                    if (!ecSrc || !ecTgt || ecSrc === ecTgt) return;
+                    if (edgeCuts.some(c => c.src === ecSrc && c.tgt === ecTgt)) return;
+                    setEdgeCuts(prev => [...prev, { src: ecSrc, tgt: ecTgt, modes: [...ecModes] }]);
+                    setEcSrc('');
+                    setEcTgt('');
+                    setEcModes(['road']);
+                  }}
+                  disabled={!ecSrc || !ecTgt || ecSrc === ecTgt}
+                  className="bg-surface border border-outline rounded px-2.5 py-0.5 text-xs font-mono text-on-surface hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+                >
+                  + Add
+                </button>
+              </div>
+
+              {/* Cut list */}
+              {edgeCuts.length === 0 ? (
+                <p className="text-xs font-mono text-on-surface-variant opacity-40 italic">
+                  No edge cuts — all transport links active
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {edgeCuts.map((cut, idx) => {
+                    const modeColor: Record<string, string> = {
+                      road: 'var(--color-status-amber)',
+                      rail: 'var(--color-primary)',
+                      air: '#7C3AED',
+                    };
+                    return (
+                      <div key={idx} className="flex items-center gap-2 bg-surface rounded-lg border border-outline px-2.5 py-1.5">
+                        <span className="font-mono text-xs text-on-surface font-medium shrink-0">
+                          {cut.src} → {cut.tgt}
+                        </span>
+                        <div className="flex gap-1 flex-1">
+                          {cut.modes.map(mode => (
+                            <span
+                              key={mode}
+                              className="text-xs font-mono px-1.5 py-0.5 rounded"
+                              style={{ backgroundColor: modeColor[mode] + '22', color: modeColor[mode], border: `1px solid ${modeColor[mode]}55` }}
+                            >
+                              {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                            </span>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setEdgeCuts(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-on-surface-variant hover:text-[var(--color-status-red)] transition-colors text-sm leading-none shrink-0"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {runError && (

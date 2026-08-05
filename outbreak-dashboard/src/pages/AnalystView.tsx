@@ -1,7 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useSeirdResults } from '../hooks/useSeirdResults';
-import { useResourceProjections } from '../hooks/useResourceProjections';
-import { useCityStatus } from '../hooks/useCityStatus';
 import DerivationBasisInspector from '../components/analyst-view/DerivationBasisInspector';
 import {
   ComposedChart,
@@ -222,10 +219,13 @@ const SpaghettiPlot = ({
   );
 };
 
-export default function AnalystView() {
-  const { data, loading, error } = useSeirdResults(SCENARIO_ID);
-  const { data: resourceData, loading: resLoading, error: resError } = useResourceProjections(SCENARIO_ID);
-  const { loading: cityLoading, error: cityError } = useCityStatus(SCENARIO_ID);
+interface Props {
+  seirdData: Record<string, any[]>;
+  cityData: Record<string, Record<string, any[]>>;
+  resourceData: Record<string, any[]>;
+}
+
+export default function AnalystView({ seirdData: data, cityData, resourceData }: Props) {
 
 
 
@@ -443,23 +443,12 @@ export default function AnalystView() {
     );
   };
 
-  if (loading || resLoading || cityLoading) {
+  if (!data || !resourceData || !cityData || Object.keys(data).length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
           <p className="text-on-surface-variant font-mono text-sm">Loading simulation data...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || resError || cityError) {
-    return (
-      <div className="min-h-screen p-8 bg-background">
-        <div className="bg-error-container text-on-error-container p-4 rounded-lg border border-error/20">
-          <h2 className="font-bold mb-2">Error Loading Data</h2>
-          <p className="font-mono text-sm">{error?.message || resError?.message || cityError?.message}</p>
         </div>
       </div>
     );

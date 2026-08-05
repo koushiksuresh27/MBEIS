@@ -11,9 +11,9 @@ export default function DerivationBasisInspector({ scenarioId }: DerivationBasis
     return null;
   }
 
-  //if (profile.profile_type !== 'derived') {
-  //return null;
-  // }
+  if (profile.profile_type !== 'derived') {
+    return null;
+  }
 
   return (
     <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-col gap-6">
@@ -22,9 +22,23 @@ export default function DerivationBasisInspector({ scenarioId }: DerivationBasis
         <h3 className="font-sans font-semibold text-on-background text-lg">
           Pathogen Profile Provenance
         </h3>
-        <span className="font-mono text-xs uppercase bg-[#FFF3E0] text-[#F57F17] border border-[#F57F17]/30 px-2 py-0.5 rounded-full">
-          DERIVED PROFILE
-        </span>
+        {(() => {
+          const badgeStyles: Record<string, { bg: string; text: string; border: string }> = {
+            derived:   { bg: '#FFF3E0', text: '#F57F17', border: '#F57F17' },
+            empirical: { bg: '#E8F5E9', text: '#2E7D32', border: '#2E7D32' },
+            manual:    { bg: '#E3F2FD', text: '#1565C0', border: '#1565C0' },
+          };
+          const type = profile.profile_type ?? 'derived';
+          const style = badgeStyles[type] ?? badgeStyles['derived'];
+          return (
+            <span
+              className="font-mono text-xs uppercase px-2 py-0.5 rounded-full border"
+              style={{ backgroundColor: style.bg, color: style.text, borderColor: `${style.border}4D` }}
+            >
+              {type.replace(/_/g, ' ')} PROFILE
+            </span>
+          );
+        })()}
       </div>
 
       {/* Section 1: Parameter ranges table */}
