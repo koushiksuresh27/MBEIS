@@ -13,7 +13,14 @@ if __name__ == "__main__":
     parser.add_argument("--meta_edges_path", default="backend/simulator/meta_mobility_edges.csv")
     parser.add_argument("--dgca_path",       default="backend/simulator/dgca_annual_weights.csv")
     parser.add_argument("--irctc_path",      default="backend/simulator/irctc_mobility_edges.csv")
+    parser.add_argument("--edge_cuts",   default=None,
+                        help='JSON array of per-edge modal cuts. Each entry needs src, tgt, and modes. '
+                             'Cuts are directional — add two entries to cut both directions. '
+                             'Example: \'[{"src":"Delhi","tgt":"Mumbai","modes":["rail","air"]}]\'')
     args = parser.parse_args()
+
+    import json
+    edge_cuts = json.loads(args.edge_cuts) if args.edge_cuts else None
 
     CITY_ALIASES = {"THRISSUR": "Kochi", "Thrissur": "Kochi"}
     origin_city = CITY_ALIASES.get(args.origin_city, args.origin_city)

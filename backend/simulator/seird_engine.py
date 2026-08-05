@@ -271,6 +271,7 @@ def build_composite_matrix(
             'air':  W_aviation,
         },
         'capacities': capacities,
+        'name_to_idx': name_to_idx,
     }
 
     return names, matrices
@@ -284,7 +285,7 @@ INTERVENTION_PARAMS = {
 }
 
 
-def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
+def apply_intervention(matrices: dict, intervention_type: str, edge_cuts: list = None) -> np.ndarray:
     """
     Three-layer mobility blending for intervention scenarios.
 
@@ -314,13 +315,32 @@ def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
     if intervention_type not in INTERVENTION_PARAMS:
         print(f"[engine] WARNING: unknown intervention_type '{intervention_type}', using 'none'")
 
-    raw        = matrices['raw']
-    capacities = matrices['capacities']
+    raw         = matrices['raw']
+    capacities  = matrices['capacities']
+    name_to_idx = matrices['name_to_idx']
+
+    # Copy raw matrices — never mutate originals (shared across all intervention runs)
+    road = raw['road'].copy()
+    rail = raw['rail'].copy()
+    air  = raw['air'].copy()
+
+    # Apply per-edge, per-mode cuts by zeroing specific matrix cells
+    # Each cut is directional (src→tgt only). Modes are independent.
+    if edge_cuts:
+        for cut in edge_cuts:
+            i = name_to_idx.get(cut['src'].upper())
+            j = name_to_idx.get(cut['tgt'].upper())
+            if i is None or j is None:
+                print(f"[engine] WARNING: unknown city in edge_cut {cut}, skipping")
+                continue
+            if 'road' in cut['modes']: road[i, j] = 0.0
+            if 'rail' in cut['modes']: rail[i, j] = 0.0
+            if 'air'  in cut['modes']: air[i, j]  = 0.0
 
     W_blended = (
-        BASE_ROAD_SHARE * params['road'] * raw['road']
-        + BASE_RAIL_SHARE * params['rail'] * raw['rail']
-        + BASE_AIR_SHARE  * params['air']  * raw['air']
+        BASE_ROAD_SHARE * params['road'] * road
+        + BASE_RAIL_SHARE * params['rail'] * rail
+        + BASE_AIR_SHARE  * params['air']  * air
     )
 
     row_sums = W_blended.sum(axis=1, keepdims=True) + 1e-9
@@ -629,7 +649,8 @@ def _resolve_intervention_for_day(day_1indexed: int, schedule: list) -> str:
 
 def run_phased_mc_iteration(
     names, matrices, origin_city, schedule,
-    r0, incubation_days, cfr, infectious_period, rng
+    r0, incubation_days, cfr, infectious_period, rng,
+    edge_cuts=None
 ):
     """
     Identical to run_mc_iteration except W is resolved per day from a schedule.
@@ -669,7 +690,7 @@ def run_phased_mc_iteration(
     # Pre-cache blended W matrices for each unique intervention in the schedule
     unique_interventions = set(p["intervention"] for p in schedule) | {"none"}
     W_cache = {
-        inv: apply_intervention(matrices, inv)
+        inv: apply_intervention(matrices, inv, edge_cuts=edge_cuts)
         for inv in unique_interventions
     }
 
@@ -713,6 +734,7 @@ def run_phased_simulation(
     origin_city: str,
     schedule: list,
     label: str,
+    edge_cuts: list = None,
     n_iterations: int = 128,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
@@ -829,7 +851,8 @@ def run_phased_simulation(
         inf, dth, new_inf, city_act = run_phased_mc_iteration(
             names, matrices, origin_city, schedule,
             r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
-            rng
+            rng,
+            edge_cuts=edge_cuts
         )
         all_infected[it]       = inf
         all_deaths[it]         = dth
