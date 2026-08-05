@@ -105,6 +105,8 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
           schedule: phases,
           label,
           n_iterations: scenarioConfig?.nIterations ?? 128,
+          seed_infections: scenarioConfig?.seedInfections ?? 500,
+          k_sensitivity: scenarioConfig?.kSensitivity ?? 35,
           ...(edgeCuts.length > 0 ? { edge_cuts: edgeCuts } : {}),
         }),
       });

@@ -36,6 +36,8 @@ export default function SetupModal({
   const [selectedCity, setSelectedCity] = useState<string>('THRISSUR');
   const [selectedIterations, setSelectedIterations] = useState<number>(128);
   const [labelInput, setLabelInput] = useState<string>('');
+  const [seedInfections, setSeedInfections] = useState<number>(500);
+  const [kSensitivity, setKSensitivity] = useState<number>(35);
   
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState<{ time: string; prefix?: string; text: string; colorClass: string; isComplete?: boolean }[]>([]);
@@ -48,6 +50,8 @@ export default function SetupModal({
         setSelectedCity(previousConfig.originCity);
         setSelectedIterations(previousConfig.nIterations);
         setLabelInput(previousConfig.scenarioLabel);
+        if (previousConfig.seedInfections) setSeedInfections(previousConfig.seedInfections);
+        if (previousConfig.kSensitivity) setKSensitivity(previousConfig.kSensitivity);
       }
       setIsRunning(false);
       setLogs([]);
@@ -102,7 +106,9 @@ export default function SetupModal({
         body: JSON.stringify({
           scenario_id: SCENARIO_ID,
           origin_city: selectedCity,
-          n_iterations: selectedIterations
+          n_iterations: selectedIterations,
+          seed_infections: seedInfections,
+          k_sensitivity: kSensitivity,
         })
       });
 
@@ -161,7 +167,9 @@ export default function SetupModal({
                       originCity: selectedCity,
                       nIterations: selectedIterations,
                       scenarioLabel: labelInput || `${selectedPathogen.name} · ${selectedCity}`,
-                      pathogenName: selectedPathogen.name
+                      pathogenName: selectedPathogen.name,
+                      seedInfections,
+                      kSensitivity,
                     });
                   }, 1200);
                 } else if (data.type === 'error') {
@@ -325,6 +333,32 @@ export default function SetupModal({
                     placeholder="e.g. Wave 2 — Thrissur origin"
                     className="w-full bg-surface-variant border border-outline rounded-lg px-4 py-2.5 text-sm font-sans text-on-surface focus:outline-none focus:border-primary placeholder:text-on-surface-variant/50"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-on-surface-variant opacity-80 mb-2">
+                    Seed Infections
+                  </label>
+                  <input
+                    type="number"
+                    value={seedInfections}
+                    onChange={e => setSeedInfections(Number(e.target.value))}
+                    min={1}
+                    className="w-full bg-surface-variant border border-outline rounded-lg px-4 py-2.5 text-sm font-mono text-on-surface focus:outline-none focus:border-primary"
+                  />
+                  <p className="text-xs font-mono text-on-surface-variant opacity-50 mt-1">Active cases in origin city at Day 0</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-on-surface-variant opacity-80 mb-2">
+                    Behavioral Sensitivity (k)
+                  </label>
+                  <input
+                    type="number"
+                    value={kSensitivity}
+                    onChange={e => setKSensitivity(Number(e.target.value))}
+                    min={1}
+                    className="w-full bg-surface-variant border border-outline rounded-lg px-4 py-2.5 text-sm font-mono text-on-surface focus:outline-none focus:border-primary"
+                  />
+                  <p className="text-xs font-mono text-on-surface-variant opacity-50 mt-1">Public fear response strength (SEIR-b). Higher = stronger self-limiting</p>
                 </div>
               </div>
             </div>

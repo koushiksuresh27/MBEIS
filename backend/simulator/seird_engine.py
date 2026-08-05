@@ -407,7 +407,8 @@ def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, lo
 
 def run_mc_iteration(
     names, matrices, origin_city, intervention,
-    r0, incubation_days, cfr, infectious_period, rng
+    r0, incubation_days, cfr, infectious_period, rng,
+    seed_infections=500, k_sensitivity=35.0
 ):
     """
     Single Monte Carlo iteration for a fixed intervention.
@@ -423,9 +424,8 @@ def run_mc_iteration(
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
-        seed = 500
-        I[origin_idx] = seed
-        S[origin_idx] -= seed
+        I[origin_idx] = seed_infections
+        S[origin_idx] -= seed_infections
     else:
         raise ValueError(
             f"run_mc_iteration: origin_city '{origin_city}' not in names list. "
@@ -449,7 +449,8 @@ def run_mc_iteration(
         import_pressure = W.T @ (I / np.maximum(pops, 1))
 
         total_new_infections = calculate_daily_infections(
-            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult
+            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult,
+            k_sensitivity=k_sensitivity
         )
 
         new_exposed_to_infectious = sigma * E
@@ -485,6 +486,8 @@ def run_simulation(
     origin_city: str,
     intervention_types: list,
     n_iterations: int = 128,
+    seed_infections: int = 500,
+    k_sensitivity: float = 35.0,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
     irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
@@ -560,7 +563,9 @@ def run_simulation(
             inf, dth, new_inf, city_act = run_mc_iteration(
                 names, matrices, origin_city, intervention,
                 r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
-                rng
+                rng,
+                seed_infections=seed_infections,
+                k_sensitivity=k_sensitivity
             )
             all_infected[it]       = inf
             all_deaths[it]         = dth
@@ -650,7 +655,7 @@ def _resolve_intervention_for_day(day_1indexed: int, schedule: list) -> str:
 def run_phased_mc_iteration(
     names, matrices, origin_city, schedule,
     r0, incubation_days, cfr, infectious_period, rng,
-    edge_cuts=None
+    edge_cuts=None, seed_infections=500, k_sensitivity=35.0
 ):
     """
     Identical to run_mc_iteration except W is resolved per day from a schedule.
@@ -670,9 +675,8 @@ def run_phased_mc_iteration(
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
-        seed = 500
-        I[origin_idx] = seed
-        S[origin_idx] -= seed
+        I[origin_idx] = seed_infections
+        S[origin_idx] -= seed_infections
     else:
         raise ValueError(
             f"run_phased_mc_iteration: origin_city '{origin_city}' not in names. "
@@ -703,7 +707,8 @@ def run_phased_mc_iteration(
 
         import_pressure = W.T @ (I / np.maximum(pops, 1))
         total_new_infections = calculate_daily_infections(
-            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult
+            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult,
+            k_sensitivity=k_sensitivity
         )
 
         new_exposed_to_infectious = sigma * E
@@ -736,6 +741,8 @@ def run_phased_simulation(
     label: str,
     edge_cuts: list = None,
     n_iterations: int = 128,
+    seed_infections: int = 500,
+    k_sensitivity: float = 35.0,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
     irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
@@ -852,7 +859,9 @@ def run_phased_simulation(
             names, matrices, origin_city, schedule,
             r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
             rng,
-            edge_cuts=edge_cuts
+            edge_cuts=edge_cuts,
+            seed_infections=seed_infections,
+            k_sensitivity=k_sensitivity
         )
         all_infected[it]       = inf
         all_deaths[it]         = dth

@@ -17,6 +17,8 @@ if __name__ == "__main__":
                         help='JSON array of per-edge modal cuts. Each entry needs src, tgt, and modes. '
                              'Cuts are directional — add two entries to cut both directions. '
                              'Example: \'[{"src":"Delhi","tgt":"Mumbai","modes":["rail","air"]}]\'')
+    parser.add_argument("--seed_infections", type=int, default=500)
+    parser.add_argument("--k_sensitivity",   type=float, default=35.0)
     args = parser.parse_args()
 
     import json
@@ -43,6 +45,8 @@ if __name__ == "__main__":
         origin_city=origin_city,
         intervention_types=["none", "rail_only", "partial", "full"],
         n_iterations=args.n_iterations,
+        seed_infections=args.seed_infections,
+        k_sensitivity=args.k_sensitivity,
         meta_edges_path=args.meta_edges_path,
         dgca_path=args.dgca_path,
         irctc_path=args.irctc_path,
