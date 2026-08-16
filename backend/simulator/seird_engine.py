@@ -56,8 +56,8 @@ LOCAL_TRANSMISSION_MULTIPLIER = {
 # Modal share for inter-city passenger movement in India.
 # Source: NITI Aayog transport modal share estimates.
 # Road 50%, Rail 30%, Air 20% — used as baseline weights in apply_intervention.
-BASE_ROAD_SHARE = 0.50
-BASE_RAIL_SHARE = 0.30
+BASE_ROAD_SHARE = 0.40
+BASE_RAIL_SHARE = 0.40
 BASE_AIR_SHARE  = 0.20
 
 
@@ -206,6 +206,9 @@ def build_composite_matrix(
                 )
 
     # ── 1. Load road layer (meta_mobility_edges.csv) ───────────────────────
+    # raw_daily_travelers = Meta outbound fraction × city pop × radiation weight
+    # × NH multiplier. Real unit: travelers/day. Row-stochastic normalization
+    # is deferred to apply_row_stochastic_bound() so relative magnitudes survive.
     if os.path.exists(meta_edges_path):
         with open(meta_edges_path, newline='') as f:
             for row in csv.DictReader(f):
@@ -213,7 +216,7 @@ def build_composite_matrix(
                 tgt = row['target_node_id'].strip().upper()
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_raw_road[i, j] = float(row['normalized_terrestrial_weight'])
+                    W_raw_road[i, j] = float(row['raw_daily_travelers'])
     else:
         print(f"[engine] WARNING: meta_edges not found at {meta_edges_path}")
 
@@ -227,7 +230,7 @@ def build_composite_matrix(
                 tgt = city_aliases_dgca.get(row['CITY2'].strip().upper(), row['CITY2'].strip().upper())
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_aviation[i, j] = float(row['NORMALIZED'])
+                    W_aviation[i, j] = float(row['DAILY_AVG'])
                     W_aviation[j, i] = W_aviation[i, j]   # symmetric
     else:
         print(f"[engine] WARNING: DGCA file not found at {dgca_path}")
@@ -242,34 +245,47 @@ def build_composite_matrix(
                 tgt = row['target_node_id'].strip().upper()
                 if src in name_to_idx and tgt in name_to_idx:
                     i, j = name_to_idx[src], name_to_idx[tgt]
-                    W_rail[i, j] = float(row['normalized_rail_weight'])
+                    W_rail[i, j] = float(row['raw_weekly_capacity']) / 7.0
     else:
         print(f"[engine] WARNING: IRCTC file not found at {irctc_path}")
 
-    # ── 4. Apply calibrator physics ────────────────────────────────────────
-    # Distance decay applied to road only.
-    # Rail OD matrix implicitly encodes route distances via passenger volumes.
-    # Aviation is already a hub-spoke structure — no decay needed.
+   # ── 4. Apply calibrator physics ────────────────────────────────────────
+    # All three matrices now carry real units (travelers/day or passengers/day).
+    # Distance decay removed from road — raw_daily_travelers already encodes
+    # short-range dominance via T_i × radiation weight (Mumbai→Pune at 428k
+    # naturally dominates without any boost).
+    # apply_row_stochastic_bound normalizes each layer independently so that
+    # relative corridor magnitudes (road >> rail ≈ air) survive into the blend.
     calibrator = MobilityCalibrator()
-    W_road_decayed = calibrator.apply_distance_decay(W_raw_road, distance_matrix)
-
-    # Independent row-stochastic bounds per modal layer.
-    # Bounding each layer separately prevents short-range terrestrial dominance
-    # from eclipsing aviation on hub corridors.
-    W_road_final = calibrator.apply_row_stochastic_bound(W_road_decayed, capacities)
-    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,     capacities)
-    W_rail_final = calibrator.apply_row_stochastic_bound(W_rail,         capacities)
+    W_road_final = calibrator.apply_row_stochastic_bound(W_raw_road,  capacities)
+    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,  capacities)
+    W_rail_final = calibrator.apply_row_stochastic_bound(W_rail,      capacities)
 
     matrices = {
         'road': W_road_final,
         'rail': W_rail_final,
         'air':  W_air_final,
+        'raw': {
+            'road': W_raw_road,
+            'rail': W_rail,
+            'air':  W_aviation,
+        },
+        'capacities': capacities,
+        'name_to_idx': name_to_idx,
     }
 
     return names, matrices
 
 
-def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
+INTERVENTION_PARAMS = {
+    'none':      {'road': 1.00, 'rail': 1.00, 'air': 1.00, 'flow': 1.00},
+    'rail_only': {'road': 1.00, 'rail': 0.00, 'air': 1.00, 'flow': 0.60},
+    'partial':   {'road': 0.33, 'rail': 0.33, 'air': 0.33, 'flow': 0.33},
+    'full':      {'road': 0.05, 'rail': 0.00, 'air': 0.05, 'flow': 0.05},
+}
+
+
+def apply_intervention(matrices: dict, intervention_type: str, edge_cuts: list = None) -> np.ndarray:
     """
     Three-layer mobility blending for intervention scenarios.
 
@@ -295,60 +311,42 @@ def apply_intervention(matrices: dict, intervention_type: str) -> np.ndarray:
     Escalation is monotone: each stricter intervention is a superset of
     restrictions from the one below it.
     """
-    W_road = matrices['road']
-    W_rail = matrices['rail']
-    W_air  = matrices['air']
-
-    if intervention_type == 'none':
-        # Full baseline modal share
-        w_road = BASE_ROAD_SHARE        # 0.50
-        w_rail = BASE_RAIL_SHARE        # 0.30
-        w_air  = BASE_AIR_SHARE         # 0.20
-
-    elif intervention_type == 'rail_only':
-        # Transit Halt: all passenger movement stopped across all modes
-        # Only essential cargo, medical, repatriation movement active
-        # Road: 10% of baseline (0.50 × 0.10 = 0.050)
-        # Rail: 10% of baseline (0.30 × 0.10 = 0.030)
-        # Air:   5% of baseline (0.20 × 0.05 = 0.010)
-        # Total: 9% of baseline mobility
-        w_road = BASE_ROAD_SHARE * 0.10  # 0.050
-        w_rail = BASE_RAIL_SHARE * 0.10  # 0.030
-        w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
-
-    elif intervention_type == 'partial':
-        # Partial Lockdown (Option B): significant restriction, economy partial
-        # Flights reduced not grounded, rail at reduced frequency, road restricted
-        # Road: 40% of baseline (0.50 × 0.40 = 0.200)
-        # Rail: 30% of baseline (0.30 × 0.30 = 0.090)  (wait — see note below)
-        # Air:  20% of baseline (0.20 × 0.20 = 0.040)
-        # Total: 33% of baseline mobility
-        # NOTE: partial keeps air at 20% — flights reduced but not grounded
-        w_road = BASE_ROAD_SHARE * 0.40  # 0.200
-        w_rail = BASE_RAIL_SHARE * 0.30  # 0.090
-        w_air  = BASE_AIR_SHARE  * 0.20  # 0.040
-
-    elif intervention_type == 'full':
-        # Full Quarantine: near-complete shutdown
-        # Only supply chain road and cargo/medical air active
-        # Rail completely stopped
-        # Road:  15% of baseline (0.50 × 0.15 = 0.075)
-        # Rail:   0% — completely stopped
-        # Air:    5% of baseline (0.20 × 0.05 = 0.010)
-        # Total: 8.5% of baseline mobility
-        w_road = BASE_ROAD_SHARE * 0.15  # 0.075
-        w_rail = 0.00
-        w_air  = BASE_AIR_SHARE  * 0.05  # 0.010
-
-    else:
-        # Unknown intervention — fall back to baseline with a warning
+    params = INTERVENTION_PARAMS.get(intervention_type, INTERVENTION_PARAMS['none'])
+    if intervention_type not in INTERVENTION_PARAMS:
         print(f"[engine] WARNING: unknown intervention_type '{intervention_type}', using 'none'")
-        w_road = BASE_ROAD_SHARE
-        w_rail = BASE_RAIL_SHARE
-        w_air  = BASE_AIR_SHARE
 
-    W_active = (w_road * W_road) + (w_rail * W_rail) + (w_air * W_air)
-    return W_active
+    raw         = matrices['raw']
+    capacities  = matrices['capacities']
+    name_to_idx = matrices['name_to_idx']
+
+    # Copy raw matrices — never mutate originals (shared across all intervention runs)
+    road = raw['road'].copy()
+    rail = raw['rail'].copy()
+    air  = raw['air'].copy()
+
+    # Apply per-edge, per-mode cuts by zeroing specific matrix cells
+    # Each cut is directional (src→tgt only). Modes are independent.
+    if edge_cuts:
+        for cut in edge_cuts:
+            i = name_to_idx.get(cut['src'].upper())
+            j = name_to_idx.get(cut['tgt'].upper())
+            if i is None or j is None:
+                print(f"[engine] WARNING: unknown city in edge_cut {cut}, skipping")
+                continue
+            if 'road' in cut['modes']: road[i, j] = 0.0
+            if 'rail' in cut['modes']: rail[i, j] = 0.0
+            if 'air'  in cut['modes']: air[i, j]  = 0.0
+
+    W_blended = (
+        BASE_ROAD_SHARE * params['road'] * road
+        + BASE_RAIL_SHARE * params['rail'] * rail
+        + BASE_AIR_SHARE  * params['air']  * air
+    )
+
+    row_sums = W_blended.sum(axis=1, keepdims=True) + 1e-9
+    W_final  = (W_blended / row_sums) * capacities
+    W_final *= params['flow']
+    return W_final
 
 
 def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, local_mult,
@@ -409,7 +407,8 @@ def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, lo
 
 def run_mc_iteration(
     names, matrices, origin_city, intervention,
-    r0, incubation_days, cfr, infectious_period, rng
+    r0, incubation_days, cfr, infectious_period, rng,
+    seed_infections=500, k_sensitivity=35.0, edge_cuts=None
 ):
     """
     Single Monte Carlo iteration for a fixed intervention.
@@ -425,9 +424,8 @@ def run_mc_iteration(
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
-        seed = 500
-        I[origin_idx] = seed
-        S[origin_idx] -= seed
+        I[origin_idx] = seed_infections
+        S[origin_idx] -= seed_infections
     else:
         raise ValueError(
             f"run_mc_iteration: origin_city '{origin_city}' not in names list. "
@@ -443,7 +441,7 @@ def run_mc_iteration(
     city_active           = np.zeros((N_DAYS, n))
 
     # Build blended W matrix once per iteration (fixed for the full N_DAYS)
-    W = apply_intervention(matrices, intervention)
+    W = apply_intervention(matrices, intervention, edge_cuts=edge_cuts)
 
     for day in range(N_DAYS):
         local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
@@ -451,7 +449,8 @@ def run_mc_iteration(
         import_pressure = W.T @ (I / np.maximum(pops, 1))
 
         total_new_infections = calculate_daily_infections(
-            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult
+            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult,
+            k_sensitivity=k_sensitivity
         )
 
         new_exposed_to_infectious = sigma * E
@@ -487,6 +486,9 @@ def run_simulation(
     origin_city: str,
     intervention_types: list,
     n_iterations: int = 128,
+    seed_infections: int = 500,
+    k_sensitivity: float = 35.0,
+    edge_cuts=None,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
     irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
@@ -562,7 +564,10 @@ def run_simulation(
             inf, dth, new_inf, city_act = run_mc_iteration(
                 names, matrices, origin_city, intervention,
                 r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
-                rng
+                rng,
+                seed_infections=seed_infections,
+                k_sensitivity=k_sensitivity,
+                edge_cuts=edge_cuts
             )
             all_infected[it]       = inf
             all_deaths[it]         = dth
@@ -651,7 +656,8 @@ def _resolve_intervention_for_day(day_1indexed: int, schedule: list) -> str:
 
 def run_phased_mc_iteration(
     names, matrices, origin_city, schedule,
-    r0, incubation_days, cfr, infectious_period, rng
+    r0, incubation_days, cfr, infectious_period, rng,
+    edge_cuts=None, seed_infections=500, k_sensitivity=35.0
 ):
     """
     Identical to run_mc_iteration except W is resolved per day from a schedule.
@@ -671,9 +677,8 @@ def run_phased_mc_iteration(
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
-        seed = 500
-        I[origin_idx] = seed
-        S[origin_idx] -= seed
+        I[origin_idx] = seed_infections
+        S[origin_idx] -= seed_infections
     else:
         raise ValueError(
             f"run_phased_mc_iteration: origin_city '{origin_city}' not in names. "
@@ -691,7 +696,7 @@ def run_phased_mc_iteration(
     # Pre-cache blended W matrices for each unique intervention in the schedule
     unique_interventions = set(p["intervention"] for p in schedule) | {"none"}
     W_cache = {
-        inv: apply_intervention(matrices, inv)
+        inv: apply_intervention(matrices, inv, edge_cuts=edge_cuts)
         for inv in unique_interventions
     }
 
@@ -704,7 +709,8 @@ def run_phased_mc_iteration(
 
         import_pressure = W.T @ (I / np.maximum(pops, 1))
         total_new_infections = calculate_daily_infections(
-            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult
+            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult,
+            k_sensitivity=k_sensitivity
         )
 
         new_exposed_to_infectious = sigma * E
@@ -735,7 +741,10 @@ def run_phased_simulation(
     origin_city: str,
     schedule: list,
     label: str,
+    edge_cuts: list = None,
     n_iterations: int = 128,
+    seed_infections: int = 500,
+    k_sensitivity: float = 35.0,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
     irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
@@ -851,7 +860,10 @@ def run_phased_simulation(
         inf, dth, new_inf, city_act = run_phased_mc_iteration(
             names, matrices, origin_city, schedule,
             r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
-            rng
+            rng,
+            edge_cuts=edge_cuts,
+            seed_infections=seed_infections,
+            k_sensitivity=k_sensitivity
         )
         all_infected[it]       = inf
         all_deaths[it]         = dth

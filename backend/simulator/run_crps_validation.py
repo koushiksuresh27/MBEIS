@@ -43,7 +43,7 @@ from crps_validator import (
 )
 
 SCENARIO_ID  = "bb0ff20e-b086-411b-8054-91560b1e88ec"
-INTERVENTION = "full"   # the blended historical run (unmitigated pre-56, suppressed post-56)
+INTERVENTION = "none"   # the blended historical run (unmitigated pre-56, suppressed post-56)
 DATASET_NAME = "india_covid19_2020"
 N_DAYS       = 90
 

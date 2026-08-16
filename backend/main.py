@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT))
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+
 
 app = FastAPI(title="OutbreakResponseOS API (v3)", version="3.0.0")
 
@@ -30,6 +31,8 @@ class SimulateRequest(BaseModel):
     scenario_id: str
     origin_city: str = "THRISSUR"
     n_iterations: int = 128
+    seed_infections: int = 500
+    k_sensitivity: float = 35.0
 
 class PhaseItem(BaseModel):
     from_day: int
@@ -42,6 +45,9 @@ class PhasedSimulateRequest(BaseModel):
     schedule: List[PhaseItem]
     label: str = "custom_phase_1"
     n_iterations: int = 128
+    edge_cuts: Optional[List[Dict[str, Any]]] = None
+    seed_infections: int = 500
+    k_sensitivity: float = 35.0
 
 @app.get("/health")
 def health():
@@ -69,6 +75,8 @@ def simulate(payload: SimulateRequest):
             "--scenario_id", payload.scenario_id,
             "--origin_city", payload.origin_city,
             "--n_iterations", str(payload.n_iterations),
+            "--seed_infections", str(payload.seed_infections),
+            "--k_sensitivity", str(payload.k_sensitivity),
             "--meta_edges_path", "backend/simulator/meta_mobility_edges.csv"
         ]
 
@@ -140,11 +148,18 @@ def simulate_phased(payload: PhasedSimulateRequest):
         origin_city=payload.origin_city,
         schedule=schedule,
         label=payload.label,
+        edge_cuts=payload.edge_cuts,
         n_iterations=payload.n_iterations,
-        meta_edges_path="backend/simulator/meta_mobility_edges.csv",
+        seed_infections=payload.seed_infections,
+        k_sensitivity=payload.k_sensitivity,
+        meta_edges_path=str(ROOT / "backend" / "simulator" / "meta_mobility_edges.csv"),
+        dgca_path=str(ROOT / "backend" / "simulator" / "dgca_annual_weights.csv"),
+        irctc_path=str(ROOT / "backend" / "simulator" / "irctc_mobility_edges.csv"),
     )
 
     return {"status": "ok", "label": payload.label}
+
+
 
 if __name__ == "__main__":
     import uvicorn
