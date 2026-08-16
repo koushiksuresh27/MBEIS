@@ -25,7 +25,7 @@ export default function PrintLayout({
     reportType
 }: PrintLayoutProps) {
     return (
-        <div id="print-root">
+        <div>
             {/* HEADER */}
             <div className="no-page-break" style={{ borderBottom: '2px solid black', paddingBottom: '12px', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

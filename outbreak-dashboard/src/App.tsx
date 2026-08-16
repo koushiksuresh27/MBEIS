@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import PrintLayout from './components/print/PrintLayout';
 import AnalystView from './pages/AnalystView';
 import PlannerView from './pages/PlannerView';
 import BubbleMap from './components/analyst-view/BubbleMap';
@@ -19,6 +20,8 @@ function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [isFirstRun, setIsFirstRun] = useState(false);
   const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig | null>(null);
+  const [reportType, setReportType] = useState<'summary' | 'full'>('summary');
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const handleSimulationComplete = (config: ScenarioConfig) => {
     setScenarioConfig(config);
@@ -33,6 +36,64 @@ function App() {
   const { data: seirdData, loading: seirdLoading } = useSeirdResults(SCENARIO_ID);
   const { data: cityData, loading: cityLoading } = useCityStatus(SCENARIO_ID);
   const { data: resourceData, cityData: resourceCityData, loading: resourceLoading } = useResourceProjections(SCENARIO_ID);
+
+  const STANDARD_KEYS = new Set(['none', 'rail_only', 'partial', 'full']);
+
+  const dynamicInterventionKeys = useMemo(() => {
+    const customKeys = Object.keys(seirdData || {}).filter(k => !STANDARD_KEYS.has(k));
+    return ['none', 'rail_only', 'partial', 'full', ...customKeys];
+  }, [seirdData]);
+
+  const nationalStats = useMemo(() => {
+    if (!seirdData) return {};
+    const stats: Record<string, any> = {};
+    dynamicInterventionKeys.forEach(key => {
+      const invData = seirdData[key] || [];
+      let peakInfections = 0, peakDay = 0, day90Deaths = 0, day180Val = 0;
+      invData.forEach((d: any) => {
+        if (d.infected_p50 > peakInfections) { peakInfections = d.infected_p50; peakDay = d.day; }
+        if (d.day === 90) day90Deaths = d.deaths_p50;
+        if (d.day === 180) day180Val = d.infected_p50;
+      });
+      if (day90Deaths === 0 && invData.length > 0) day90Deaths = invData[invData.length - 1].deaths_p50;
+      const verdict = peakInfections > 150 ? 'High transmission — intervention critical'
+        : peakInfections >= 50 ? 'Moderate spread — monitor closely'
+        : 'Contained — intervention effective';
+      stats[key] = { peakInfections, peakDay, day90Deaths, day180Val, verdict };
+    });
+    return stats;
+  }, [seirdData, dynamicInterventionKeys]);
+
+  const cityTableData = useMemo(() => {
+    if (!cityData) return [];
+    return Object.keys(cityData)
+      .map(city => {
+        const row: Record<string, any> = { city };
+        dynamicInterventionKeys.forEach(key => {
+          const invArray = cityData[city]?.[key] || [];
+          const sorted = [...invArray].sort((a: any, b: any) => Number(b.day) - Number(a.day));
+          const latest = sorted.find((d: any) => Number(d.day) === 180) ?? sorted[0];
+          row[key] = latest ? parseFloat(String(latest.active_cases_p50 ?? '0')) : 0;
+        });
+        return row;
+      })
+      .sort((a, b) => b.none - a.none);
+  }, [cityData, dynamicInterventionKeys]);
+
+  const resourceStats = useMemo(() => {
+    if (!resourceData) return { resources: {}, capacityCeiling: 17000 };
+    const resources: Record<string, any> = {};
+    dynamicInterventionKeys.forEach(key => {
+      const invWeeks = resourceData[key] || [];
+      let peakOxygen = 0, peakICU = 0;
+      invWeeks.forEach((w: any) => {
+        if (w.oxygen_mt > peakOxygen) peakOxygen = w.oxygen_mt;
+        if (w.icu_beds > peakICU) peakICU = w.icu_beds;
+      });
+      resources[key] = { peakOxygen, peakICU, shortfall: peakOxygen - 17000 };
+    });
+    return { resources, capacityCeiling: 17000 };
+  }, [resourceData, dynamicInterventionKeys]);
 
   const dynamicInterventions = useMemo(() => {
     const firstCity = Object.values(cityData || {})[0];
@@ -65,8 +126,43 @@ function App() {
     window.dispatchEvent(new CustomEvent('simulation-complete'));
   };
 
+  const handleExport = (type: 'summary' | 'full') => {
+    setShowExportMenu(false);
+    setReportType(type);
+
+    const dashRoot = document.getElementById('dashboard-root');
+    const printRoot = document.getElementById('print-root');
+
+    if (!printRoot || !dashRoot) {
+      console.error('Could not find print-root or dashboard-root');
+      return;
+    }
+
+    console.log('Before:', printRoot.style.display, dashRoot.style.display);
+
+    dashRoot.style.setProperty('display', 'none', 'important');
+    printRoot.style.setProperty('display', 'block', 'important');
+
+    console.log('After:', printRoot.style.display, dashRoot.style.display);
+
+    document.title = `OutbreakResponseOS_${type}_${new Date().toISOString().split('T')[0]}`;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.onafterprint = () => {
+          document.title = 'Outbreak Response OS';
+          dashRoot.style.removeProperty('display');
+          printRoot.style.setProperty('display', 'none', 'important');
+          window.onafterprint = null;
+        };
+        window.print();
+      });
+    });
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-background overflow-hidden">
+    <>
+      <div id="dashboard-root" className="flex flex-col h-screen bg-background overflow-hidden">
       {/* Global Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-outline bg-surface sticky top-0 z-10 shrink-0">
         <div className="flex flex-col">
@@ -133,6 +229,30 @@ function App() {
               </button>
             )}
 
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="bg-surface rounded-lg border border-outline px-3 py-1.5 shadow-sm text-xs font-medium text-on-surface hover:bg-surface-variant transition-colors"
+              >
+                ↓ Export PDF
+              </button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-8 bg-surface border border-outline rounded-lg shadow-lg z-50 overflow-hidden w-52">
+                  <button
+                    onClick={() => handleExport('summary')}
+                    className="block w-full text-left px-4 py-2.5 text-sm font-mono text-on-surface hover:bg-surface-variant"
+                  >
+                    Summary Report (2-3 pages)
+                  </button>
+                  <button
+                    onClick={() => handleExport('full')}
+                    className="block w-full text-left px-4 py-2.5 text-sm font-mono text-on-surface hover:bg-surface-variant border-t border-outline"
+                  >
+                    Full Technical Report (5-6 pages)
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -178,7 +298,18 @@ function App() {
         isFirstRun={isFirstRun}
         previousConfig={scenarioConfig ?? undefined}
       />
-    </div>
+      </div>
+      <div id="print-root" style={{ display: 'none' }}>
+        <PrintLayout
+          scenarioConfig={scenarioConfig}
+          summaryStats={nationalStats}
+          cityTableData={cityTableData}
+          resourceStats={resourceStats}
+          mlRecs={null}
+          reportType={reportType}
+        />
+      </div>
+    </>
   );
 }
 
