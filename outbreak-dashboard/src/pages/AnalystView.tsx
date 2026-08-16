@@ -21,14 +21,14 @@ const INTERVENTIONS = [
   { key: 'full', label: 'Full Quarantine', color: 'var(--color-status-green)' },
 ];
 
-const SpaghettiPlot = ({ 
-  chartData, 
-  activeLines, 
-  logScale, 
-  interventions 
-}: { 
-  chartData: any[]; 
-  activeLines: Record<string, boolean>; 
+const SpaghettiPlot = ({
+  chartData,
+  activeLines,
+  logScale,
+  interventions
+}: {
+  chartData: any[];
+  activeLines: Record<string, boolean>;
   logScale: boolean;
   interventions: typeof INTERVENTIONS;
 }) => {
@@ -74,7 +74,7 @@ const SpaghettiPlot = ({
   const xMax = 180;
 
   const getX = (day: number) => padLeft + ((day - xMin) / (xMax - xMin)) * innerWidth;
-  
+
   const getY = (val: number) => {
     if (val === undefined || isNaN(val)) return padTop + innerHeight;
     if (logScale) {
@@ -111,9 +111,9 @@ const SpaghettiPlot = ({
 
   return (
     <div ref={containerRef} className="w-full h-full relative font-mono text-[12px] text-on-surface-variant select-none">
-      <svg 
-        width={dim.width} 
-        height={dim.height} 
+      <svg
+        width={dim.width}
+        height={dim.height}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoverData(null)}
         className="absolute inset-0 cursor-crosshair"
@@ -192,11 +192,11 @@ const SpaghettiPlot = ({
       </svg>
 
       {hoverData && (
-        <div 
+        <div
           className="absolute pointer-events-none bg-surface p-3 border border-outline rounded-lg shadow-lg z-20 w-48"
-          style={{ 
-            left: hoverData.x > dim.width / 2 ? hoverData.x - 200 : hoverData.x + 15, 
-            top: padTop + 20 
+          style={{
+            left: hoverData.x > dim.width / 2 ? hoverData.x - 200 : hoverData.x + 15,
+            top: padTop + 20
           }}
         >
           <p className="font-mono text-sm text-on-surface mb-2 font-bold border-b border-outline pb-1">Day {hoverData.day}</p>
@@ -223,9 +223,11 @@ interface Props {
   seirdData: Record<string, any[]>;
   cityData: Record<string, Record<string, any[]>>;
   resourceData: Record<string, any[]>;
+  isLoading?: boolean;
+  onRefresh?: () => void;
 }
 
-export default function AnalystView({ seirdData: data, cityData, resourceData }: Props) {
+export default function AnalystView({ seirdData: data, cityData, resourceData, isLoading, onRefresh }: Props) {
 
 
 
@@ -430,8 +432,8 @@ export default function AnalystView({ seirdData: data, cityData, resourceData }:
               key={inv.key}
               onClick={() => toggleLine(inv.key)}
               className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full transition-colors border ${isActive
-                  ? 'bg-surface-variant border-outline text-on-surface'
-                  : 'bg-transparent border-outline/50 text-on-surface-variant opacity-60'
+                ? 'bg-surface-variant border-outline text-on-surface'
+                : 'bg-transparent border-outline/50 text-on-surface-variant opacity-60'
                 }`}
             >
               <span className="w-3 h-3 rounded-full" style={{ backgroundColor: inv.color }}></span>
@@ -443,12 +445,32 @@ export default function AnalystView({ seirdData: data, cityData, resourceData }:
     );
   };
 
-  if (!data || !resourceData || !cityData || Object.keys(data).length === 0) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
           <p className="text-on-surface-variant font-mono text-sm">Loading simulation data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || Object.keys(data).length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <span className="text-4xl">📭</span>
+          <p className="text-on-surface font-mono text-sm font-bold">No simulation data yet.</p>
+          <p className="text-on-surface-variant font-mono text-xs">Configure a scenario and hit Run to generate results.</p>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="mt-2 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-mono font-medium hover:bg-primary/90 transition-colors"
+            >
+              Refresh
+            </button>
+          )}
         </div>
       </div>
     );
@@ -472,7 +494,7 @@ export default function AnalystView({ seirdData: data, cityData, resourceData }:
           <div className="bg-tertiary-fixed rounded-lg border border-tertiary/20 p-3 max-w-xs shadow-sm flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-tertiary"></span>
-              <span className="text-sm font-bold text-tertiary font-sans">CRPS Skill Score: -3.50</span>
+              <span className="text-sm font-bold text-tertiary font-sans">CRPS Skill Score: -0.43</span>
             </div>
             <p className="text-[10px] leading-tight text-on-tertiary-fixed font-mono opacity-80">
               Model measures true infections; ground truth is confirmed cases under restrictive early testing. Magnitude gap expected, timing/shape is the validation signal.
@@ -520,11 +542,11 @@ export default function AnalystView({ seirdData: data, cityData, resourceData }:
           </div>
           <div className="h-[320px] w-full">
             {plotMode === 'spaghetti' ? (
-              <SpaghettiPlot 
-                chartData={chartData} 
-                activeLines={activeLines} 
-                logScale={logScale} 
-                interventions={dynamicInterventions} 
+              <SpaghettiPlot
+                chartData={chartData}
+                activeLines={activeLines}
+                logScale={logScale}
+                interventions={dynamicInterventions}
               />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -675,80 +697,80 @@ export default function AnalystView({ seirdData: data, cityData, resourceData }:
           </div>
         </div>
 
-          {/* Rt Chart Card */}
-          <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-on-background font-sans">Effective Reproduction Number (Rₜ)</h3>
-                <p className="text-xs text-on-surface-variant font-mono mt-1">Rₜ &gt; 1 = epidemic growing · Rₜ &lt; 1 = epidemic shrinking · Rₜ = 1 = stable</p>
-              </div>
-            </div>
-            <div className="h-[220px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={rtChartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline)" vertical={false} opacity={0.5} />
-                  <XAxis
-                    dataKey="day"
-                    ticks={[1, 30, 60, 90, 120, 150, 180]}
-                    stroke="var(--color-on-surface-variant)"
-                    tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
-                    label={{ value: 'Day', position: 'insideBottom', offset: -10, fill: 'var(--color-on-surface-variant)' }}
-                  />
-                  <YAxis
-                    stroke="var(--color-on-surface-variant)"
-                    tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
-                    domain={[0, 4]}
-                    tickFormatter={(val) => val.toFixed(1)}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }: any) => {
-                      if (active && payload && payload.length) {
-                        return (
-                          <div className="bg-surface p-3 border border-outline rounded-lg shadow-lg">
-                            <p className="font-mono text-sm text-on-surface mb-2 font-bold border-b border-outline pb-1">Day {label}</p>
-                            {payload.map((entry: any, index: number) => {
-                              if (!entry.value) return null;
-                              const invKey = entry.dataKey.replace('_rt', '');
-                              const invInfo = dynamicInterventions.find(i => i.key === invKey);
-                              return (
-                                <div key={index} className="flex items-center gap-2 text-sm font-mono text-on-surface">
-                                  <span className="w-3 h-3 inline-block rounded-full" style={{ backgroundColor: entry.stroke }}></span>
-                                  <span className="font-medium flex-1">{invInfo?.label}:</span>
-                                  <span>Rₜ = {Number(entry.value).toFixed(2)}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <ReferenceLine
-                    y={1}
-                    stroke="var(--color-error)"
-                    strokeDasharray="4 4"
-                    strokeWidth={1.5}
-                    label={{ position: 'right', value: 'Rₜ = 1', fill: 'var(--color-error)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
-                  />
-                  {dynamicInterventions.map(inv => activeLines[inv.key] && (
-                    <Line
-                      key={`${inv.key}-rt`}
-                      type="monotone"
-                      dataKey={`${inv.key}_rt`}
-                      stroke={inv.color}
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls={false}
-                      activeDot={{ r: 4 }}
-                    />
-                  ))}
-                </ComposedChart>
-              </ResponsiveContainer>
+        {/* Rt Chart Card */}
+        <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-on-background font-sans">Effective Reproduction Number (Rₜ)</h3>
+              <p className="text-xs text-on-surface-variant font-mono mt-1">Rₜ &gt; 1 = epidemic growing · Rₜ &lt; 1 = epidemic shrinking · Rₜ = 1 = stable</p>
             </div>
           </div>
+          <div className="h-[220px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={rtChartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline)" vertical={false} opacity={0.5} />
+                <XAxis
+                  dataKey="day"
+                  ticks={[1, 30, 60, 90, 120, 150, 180]}
+                  stroke="var(--color-on-surface-variant)"
+                  tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
+                  label={{ value: 'Day', position: 'insideBottom', offset: -10, fill: 'var(--color-on-surface-variant)' }}
+                />
+                <YAxis
+                  stroke="var(--color-on-surface-variant)"
+                  tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
+                  domain={[0, 4]}
+                  tickFormatter={(val) => val.toFixed(1)}
+                />
+                <Tooltip
+                  content={({ active, payload, label }: any) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-surface p-3 border border-outline rounded-lg shadow-lg">
+                          <p className="font-mono text-sm text-on-surface mb-2 font-bold border-b border-outline pb-1">Day {label}</p>
+                          {payload.map((entry: any, index: number) => {
+                            if (!entry.value) return null;
+                            const invKey = entry.dataKey.replace('_rt', '');
+                            const invInfo = dynamicInterventions.find(i => i.key === invKey);
+                            return (
+                              <div key={index} className="flex items-center gap-2 text-sm font-mono text-on-surface">
+                                <span className="w-3 h-3 inline-block rounded-full" style={{ backgroundColor: entry.stroke }}></span>
+                                <span className="font-medium flex-1">{invInfo?.label}:</span>
+                                <span>Rₜ = {Number(entry.value).toFixed(2)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <ReferenceLine
+                  y={1}
+                  stroke="var(--color-error)"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                  label={{ position: 'right', value: 'Rₜ = 1', fill: 'var(--color-error)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+                />
+                {dynamicInterventions.map(inv => activeLines[inv.key] && (
+                  <Line
+                    key={`${inv.key}-rt`}
+                    type="monotone"
+                    dataKey={`${inv.key}_rt`}
+                    stroke={inv.color}
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls={false}
+                    activeDot={{ r: 4 }}
+                  />
+                ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
 
-          <DerivationBasisInspector scenarioId={SCENARIO_ID} />
+        <DerivationBasisInspector scenarioId={SCENARIO_ID} />
 
         {/* Resource Projections Chart Card */}
         <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm">
@@ -759,6 +781,9 @@ export default function AnalystView({ seirdData: data, cityData, resourceData }:
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline)" vertical={false} opacity={0.5} />
                 <XAxis
                   dataKey="week"
+                  type="number"
+                  domain={[1, 26]}
+                  ticks={[1, 4, 8, 12, 16, 20, 24, 26]}
                   stroke="var(--color-on-surface-variant)"
                   tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12, fontFamily: 'var(--font-mono)' }}
                   label={{ value: 'Week', position: 'insideBottom', offset: -10, fill: 'var(--color-on-surface-variant)' }}

@@ -6,7 +6,6 @@ import { useCityStatus } from './hooks/useCityStatus';
 import { useResourceProjections } from './hooks/useResourceProjections';
 import { useSeirdResults } from './hooks/useSeirdResults';
 import SetupModal from './components/SetupModal';
-import ErisDrawer from './components/ErisDrawer';
 import type { ScenarioConfig } from './types/scenario';
 
 const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
@@ -19,19 +18,21 @@ function App() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isFirstRun, setIsFirstRun] = useState(false);
-  const [isErisOpen, setIsErisOpen] = useState(false);
   const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig | null>(null);
 
   const handleSimulationComplete = (config: ScenarioConfig) => {
     setScenarioConfig(config);
     setIsFirstRun(false);
     setModalOpen(false);
-    window.dispatchEvent(new CustomEvent('simulation-complete'));
+    // Delay firing the event so Supabase has time to finish writing all rows
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('simulation-complete'));
+    }, 2000);
   };
 
-  const { data: seirdData } = useSeirdResults(SCENARIO_ID);
+  const { data: seirdData, loading: seirdLoading } = useSeirdResults(SCENARIO_ID);
   const { data: cityData, loading: cityLoading } = useCityStatus(SCENARIO_ID);
-  const { data: resourceData, cityData: resourceCityData } = useResourceProjections(SCENARIO_ID);
+  const { data: resourceData, cityData: resourceCityData, loading: resourceLoading } = useResourceProjections(SCENARIO_ID);
 
   const dynamicInterventions = useMemo(() => {
     const firstCity = Object.values(cityData || {})[0];
@@ -60,6 +61,10 @@ function App() {
     }
   }, [isDark]);
 
+  const handleRefresh = () => {
+    window.dispatchEvent(new CustomEvent('simulation-complete'));
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
       {/* Global Header */}
@@ -72,36 +77,33 @@ function App() {
               : 'Configure a scenario to begin'}
           </p>
         </div>
-        
+
         {/* View Mode Toggle */}
         <div className="flex items-center bg-surface-container rounded-lg p-1 border border-outline">
-          <button 
+          <button
             onClick={() => setView('planner')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              view === 'planner' 
-                ? 'bg-surface shadow-sm text-on-surface' 
-                : 'text-on-surface-variant opacity-60 hover:opacity-100 hover:bg-surface-variant'
-            }`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'planner'
+              ? 'bg-surface shadow-sm text-on-surface'
+              : 'text-on-surface-variant opacity-60 hover:opacity-100 hover:bg-surface-variant'
+              }`}
           >
             Planner View
           </button>
-          <button 
+          <button
             onClick={() => setView('analyst')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              view === 'analyst' 
-                ? 'bg-surface shadow-sm text-on-surface' 
-                : 'text-on-surface-variant opacity-60 hover:opacity-100 hover:bg-surface-variant'
-            }`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'analyst'
+              ? 'bg-surface shadow-sm text-on-surface'
+              : 'text-on-surface-variant opacity-60 hover:opacity-100 hover:bg-surface-variant'
+              }`}
           >
             Analyst View
           </button>
-          <button 
+          <button
             onClick={() => setView('map')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              view === 'map' 
-                ? 'bg-surface shadow-sm text-on-surface' 
-                : 'text-on-surface-variant opacity-60 hover:opacity-100 hover:bg-surface-variant'
-            }`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'map'
+              ? 'bg-surface shadow-sm text-on-surface'
+              : 'text-on-surface-variant opacity-60 hover:opacity-100 hover:bg-surface-variant'
+              }`}
           >
             Spread Map
           </button>
@@ -109,7 +111,7 @@ function App() {
 
         {/* Header Badges & Actions */}
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={() => setIsDark(!isDark)}
             className="p-2 rounded-full text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors"
             title="Toggle Dark Mode"
@@ -120,7 +122,7 @@ function App() {
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
             )}
           </button>
-          
+
           <div className="flex items-center gap-2">
             {!isFirstRun && (
               <button
@@ -130,13 +132,7 @@ function App() {
                 New Scenario
               </button>
             )}
-            <button
-              onClick={() => setIsErisOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 rounded-lg border border-blue-500/50 px-3 py-1.5 shadow-sm text-xs font-medium text-white transition-colors flex items-center gap-2"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-              ERIS AI Assistant
-            </button>
+
           </div>
         </div>
       </header>
@@ -144,7 +140,7 @@ function App() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative">
         {view === 'planner' ? (
-          <PlannerView seirdData={seirdData || {}} cityData={cityData || {}} resourceData={resourceData || {}} resourceCityData={resourceCityData || {}} scenarioConfig={scenarioConfig} />
+          <PlannerView seirdData={seirdData || {}} cityData={cityData || {}} resourceData={resourceData || {}} resourceCityData={resourceCityData || {}} scenarioConfig={scenarioConfig} onRefresh={handleRefresh} />
         ) : view === 'map' ? (
           <div className="w-full h-full">
             {cityLoading ? (
@@ -152,21 +148,27 @@ function App() {
                 Loading city data...
               </div>
             ) : (
-            <BubbleMap
-              cityData={cityData || {}}
-              resourceData={resourceCityData || {}}
-              activeIntervention={mapIntervention}
-              simulationDay={mapDay}
-              onDayChange={setMapDay}
-              onInterventionChange={setMapIntervention}
-              customInterventions={dynamicInterventions.filter(
-                i => !['none','rail_only','partial','full'].includes(i.key)
-              )}
-            />
+              <BubbleMap
+                cityData={cityData || {}}
+                resourceData={resourceCityData || {}}
+                activeIntervention={mapIntervention}
+                simulationDay={mapDay}
+                onDayChange={setMapDay}
+                onInterventionChange={setMapIntervention}
+                customInterventions={dynamicInterventions.filter(
+                  i => !['none', 'rail_only', 'partial', 'full'].includes(i.key)
+                )}
+              />
             )}
           </div>
         ) : (
-          <AnalystView seirdData={seirdData || {}} cityData={cityData || {}} resourceData={resourceData || {}} />
+          <AnalystView
+            seirdData={seirdData || {}}
+            cityData={cityData || {}}
+            resourceData={resourceData || {}}
+            isLoading={seirdLoading || cityLoading || resourceLoading}
+            onRefresh={handleRefresh}
+          />
         )}
       </div>
       <SetupModal
@@ -175,11 +177,6 @@ function App() {
         onSimulationComplete={handleSimulationComplete}
         isFirstRun={isFirstRun}
         previousConfig={scenarioConfig ?? undefined}
-      />
-      <ErisDrawer 
-        isOpen={isErisOpen} 
-        onClose={() => setIsErisOpen(false)} 
-        scenarioId={scenarioConfig?.scenarioId || SCENARIO_ID}
       />
     </div>
   );

@@ -408,7 +408,7 @@ def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, lo
 def run_mc_iteration(
     names, matrices, origin_city, intervention,
     r0, incubation_days, cfr, infectious_period, rng,
-    seed_infections=500, k_sensitivity=35.0
+    seed_infections=500, k_sensitivity=35.0, edge_cuts=None
 ):
     """
     Single Monte Carlo iteration for a fixed intervention.
@@ -441,7 +441,7 @@ def run_mc_iteration(
     city_active           = np.zeros((N_DAYS, n))
 
     # Build blended W matrix once per iteration (fixed for the full N_DAYS)
-    W = apply_intervention(matrices, intervention)
+    W = apply_intervention(matrices, intervention, edge_cuts=edge_cuts)
 
     for day in range(N_DAYS):
         local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
@@ -488,6 +488,7 @@ def run_simulation(
     n_iterations: int = 128,
     seed_infections: int = 500,
     k_sensitivity: float = 35.0,
+    edge_cuts=None,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
     irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
@@ -565,7 +566,8 @@ def run_simulation(
                 r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
                 rng,
                 seed_infections=seed_infections,
-                k_sensitivity=k_sensitivity
+                k_sensitivity=k_sensitivity,
+                edge_cuts=edge_cuts
             )
             all_infected[it]       = inf
             all_deaths[it]         = dth

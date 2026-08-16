@@ -14,6 +14,13 @@ export function useCityStatus(scenarioId: string) {
   const [data, setData] = useState<Record<string, Record<string, CityStatus[]>>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchCount, setRefetchCount] = useState(0);
+
+  useEffect(() => {
+    const handler = () => setRefetchCount(c => c + 1);
+    window.addEventListener('simulation-complete', handler);
+    return () => window.removeEventListener('simulation-complete', handler);
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
@@ -36,7 +43,8 @@ export function useCityStatus(scenarioId: string) {
             .select('day, city, active_cases_p10, active_cases_p50, active_cases_p90, intervention_type')
             .eq('scenario_id', scenarioId)
             .eq('city', city)
-            .order('day', { ascending: true });
+            .order('day', { ascending: true })
+            .limit(2000);
 
           if (supaError) throw supaError;
 
@@ -62,7 +70,7 @@ export function useCityStatus(scenarioId: string) {
     }
 
     fetchData();
-  }, [scenarioId]);
+  }, [scenarioId, refetchCount]);
 
   return { data, loading, error };
 }

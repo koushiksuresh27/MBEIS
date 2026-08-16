@@ -61,11 +61,24 @@ export default function SetupModal({
           .from('reference_diseases')
           .select('reference_disease_id, name, r0_most_likely, cfr_most_likely, incubation_days_most_likely, infectious_period_most_likely')
           .order('name');
-          
-        if (data) {
-          setPathogens(data);
+
+        // Retry once if the result comes back empty (race with DB connection)
+        const finalData = (!data || data.length === 0)
+          ? await new Promise<typeof data>(resolve =>
+              setTimeout(async () => {
+                const { data: retryData } = await supabase
+                  .from('reference_diseases')
+                  .select('reference_disease_id, name, r0_most_likely, cfr_most_likely, incubation_days_most_likely, infectious_period_most_likely')
+                  .order('name');
+                resolve(retryData);
+              }, 1500)
+            )
+          : data;
+
+        if (finalData) {
+          setPathogens(finalData);
           if (previousConfig) {
-            const match = data.find(p => p.name === previousConfig.pathogenName);
+            const match = finalData.find((p: any) => p.name === previousConfig.pathogenName);
             if (match) setSelectedPathogenId(match.reference_disease_id);
           }
         }

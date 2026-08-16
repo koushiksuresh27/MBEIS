@@ -17,9 +17,10 @@ interface Props {
   resourceData: Record<string, any[]>;
   scenarioConfig?: ScenarioConfig | null;
   resourceCityData?: Record<string, any[]>;
+  onRefresh?: () => void;
 }
 
-export default function PlannerView({ scenarioConfig, seirdData, cityData, resourceData, resourceCityData = {} }: Props) {
+export default function PlannerView({ scenarioConfig, seirdData, cityData, resourceData, resourceCityData = {}, onRefresh }: Props) {
 
   const [activeLines, setActiveLines] = useState<Record<string, boolean>>({
     none: true,
@@ -50,7 +51,7 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
 
   const cityList = useMemo(() =>
     Object.keys(cityData || {}).map(c => c.toUpperCase()).sort(),
-  [cityData]);
+    [cityData]);
 
   const toggleLine = (key: string) => {
     setActiveLines(prev => ({ ...prev, [key]: !prev[key] }));
@@ -275,6 +276,14 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
         <p className="text-xs font-mono text-on-surface-variant opacity-60">
           Configure a plan above and hit Run to generate results.
         </p>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="mt-2 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-mono font-medium hover:bg-primary/90 transition-colors"
+          >
+            Refresh
+          </button>
+        )}
       </div>
     );
 
@@ -385,8 +394,8 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
                 {(['road', 'rail', 'air'] as const).map(mode => {
                   const active = ecModes.includes(mode);
                   const modeColor: Record<string, string> = {
-                    road: 'var(--color-status-amber)',
-                    rail: 'var(--color-primary)',
+                    road: '#F57F17',
+                    rail: '#2E4A8C',
                     air: '#7C3AED',
                   };
                   return (
@@ -433,8 +442,8 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
                 <div className="flex flex-col gap-1">
                   {edgeCuts.map((cut, idx) => {
                     const modeColor: Record<string, string> = {
-                      road: 'var(--color-status-amber)',
-                      rail: 'var(--color-primary)',
+                      road: '#F57F17',
+                      rail: '#2E4A8C',
                       air: '#7C3AED',
                     };
                     return (
@@ -667,11 +676,10 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
                 <button
                   key={inv.key}
                   onClick={() => toggleLine(inv.key)}
-                  className={`flex items-center gap-2 text-xs px-2.5 py-1 rounded-full transition-colors border ${
-                    isActive
-                      ? 'bg-surface border-outline text-on-surface'
-                      : 'bg-transparent border-outline/50 text-on-surface-variant opacity-50'
-                  }`}
+                  className={`flex items-center gap-2 text-xs px-2.5 py-1 rounded-full transition-colors border ${isActive
+                    ? 'bg-surface border-outline text-on-surface'
+                    : 'bg-transparent border-outline/50 text-on-surface-variant opacity-50'
+                    }`}
                 >
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: inv.color }}></span>
                   <span className="font-mono font-medium">{inv.label}</span>
@@ -680,41 +688,41 @@ export default function PlannerView({ scenarioConfig, seirdData, cityData, resou
             })}
           </div>
           <div className="grid gap-0 divide-x divide-outline" style={{ gridTemplateColumns: `repeat(${dynamicInterventions.filter(inv => activeLines[inv.key]).length}, minmax(0, 1fr))` }}>
-          {dynamicInterventions.map(inv => {
-            if (!activeLines[inv.key]) return null;
-            const stat = nationalStats[inv.key];
-            if (!stat) return null;
+            {dynamicInterventions.map(inv => {
+              if (!activeLines[inv.key]) return null;
+              const stat = nationalStats[inv.key];
+              if (!stat) return null;
 
-            let verdictColor = 'text-[var(--color-status-green)]';
-            if (stat.verdict.includes('critical')) verdictColor = 'text-[var(--color-status-red)]';
-            else if (stat.verdict.includes('Moderate')) verdictColor = 'text-[var(--color-status-amber)]';
+              let verdictColor = 'text-[var(--color-status-green)]';
+              if (stat.verdict.includes('critical')) verdictColor = 'text-[var(--color-status-red)]';
+              else if (stat.verdict.includes('Moderate')) verdictColor = 'text-[var(--color-status-amber)]';
 
-            return (
-              <div
-                key={`national-${inv.key}`}
-                className="p-4 flex flex-col gap-3 bg-surface-variant"
-                style={{}}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: inv.color }}></span>
-                  <h3 className="font-sans font-semibold text-on-background">{inv.label}</h3>
+              return (
+                <div
+                  key={`national-${inv.key}`}
+                  className="p-4 flex flex-col gap-3 bg-surface-variant"
+                  style={{}}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: inv.color }}></span>
+                    <h3 className="font-sans font-semibold text-on-background">{inv.label}</h3>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-on-surface-variant font-mono uppercase tracking-wider">Peak Active Infections</span>
+                    <span className="font-mono text-xl text-on-surface">
+                      {Math.round(stat.peakInfections).toLocaleString()} <span className="text-sm text-on-surface-variant">on Day {stat.peakDay}</span>
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-on-surface-variant font-mono uppercase tracking-wider">Total Deaths (Day 90)</span>
+                    <span className="font-mono text-xl text-on-surface">
+                      {Math.round(stat.day90Deaths).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="mt-auto pt-4 border-t border-outline" />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-on-surface-variant font-mono uppercase tracking-wider">Peak Active Infections</span>
-                  <span className="font-mono text-xl text-on-surface">
-                    {Math.round(stat.peakInfections).toLocaleString()} <span className="text-sm text-on-surface-variant">on Day {stat.peakDay}</span>
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-on-surface-variant font-mono uppercase tracking-wider">Total Deaths (Day 90)</span>
-                  <span className="font-mono text-xl text-on-surface">
-                    {Math.round(stat.day90Deaths).toLocaleString()}
-                  </span>
-                </div>
-                <div className="mt-auto pt-4 border-t border-outline" />
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         </section>
 

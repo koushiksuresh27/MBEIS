@@ -22,6 +22,13 @@ export function useResourceProjections(scenarioId: string) {
   const [cityData, setCityData] = useState<Record<string, CityResourceProjection[]>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchCount, setRefetchCount] = useState(0);
+
+  useEffect(() => {
+    const handler = () => setRefetchCount(c => c + 1);
+    window.addEventListener('simulation-complete', handler);
+    return () => window.removeEventListener('simulation-complete', handler);
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
@@ -34,7 +41,8 @@ export function useResourceProjections(scenarioId: string) {
           .from('resource_projections')
           .select('week, intervention_type, city, projected_icu_beds_needed, projected_non_icu_beds_needed, projected_isolation_beds_needed, projected_oxygen_mt_per_day')
           .eq('scenario_id', scenarioId)
-          .order('week', { ascending: true });
+          .order('week', { ascending: true })
+          .limit(2000);
 
         if (supaError) throw supaError;
 
@@ -93,7 +101,7 @@ export function useResourceProjections(scenarioId: string) {
     }
 
     fetchData();
-  }, [scenarioId]);
+  }, [scenarioId, refetchCount]);
 
   return { data, cityData, loading, error };
 }
