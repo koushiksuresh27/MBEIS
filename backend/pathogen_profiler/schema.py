@@ -11,19 +11,13 @@ class ProfileType(str, Enum):
 
 class ParameterRange(BaseModel):
     """
-    Represents an epidemiological parameter as a range.
-
-    Example:
-        {
-            "low": 1.5,
-            "most_likely": 2.5,
-            "high": 4.0
-        }
+    Represents an epidemiological parameter using
+    low, most_likely, and high values.
     """
 
-    low: float = Field(..., description="Lower bound")
-    most_likely: float = Field(..., description="Most likely estimate")
-    high: float = Field(..., description="Upper bound")
+    low: float
+    most_likely: float
+    high: float
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -43,14 +37,12 @@ class ParameterRange(BaseModel):
 class DerivationBasis(BaseModel):
     """
     Explains how a derived pathogen profile was produced.
-
-    This will be populated by Stage 2.
     """
 
     contributing_diseases: list[dict[str, Any]] = Field(
         ...,
         description=(
-            "Reference diseases contributing to the derived profile, "
+            "Reference diseases used to derive the profile, "
             "including their similarity weights."
         ),
     )
@@ -58,24 +50,32 @@ class DerivationBasis(BaseModel):
     weighting_features: dict[str, Any] = Field(
         ...,
         description=(
-            "Features that influenced similarity weighting, such as "
-            "transmission route, incubation pattern, and severity pattern."
+            "Features used for similarity weighting, such as "
+            "transmission route, incubation pattern, and severity."
         ),
     )
 
     reasoning: str = Field(
         ...,
-        description="Human-readable explanation of the derivation.",
+        description="Explanation of why the reference diseases were selected.",
     )
 
 
 class ProfileRequest(BaseModel):
     """
-    Request sent by the planner to create a pathogen profile.
+    Request received by the Pathogen Profiler.
+
+    The planner must provide either:
+    - disease_name for Stage 1
+    - description for Stage 2
     """
 
     scenario_id: str = Field(..., min_length=1)
-    version: int = Field(default=1, ge=1)
+
+    version: int = Field(
+        default=1,
+        ge=1,
+    )
 
     disease_name: str | None = Field(
         default=None,
@@ -84,7 +84,7 @@ class ProfileRequest(BaseModel):
 
     description: str | None = Field(
         default=None,
-        description="Free-text pathogen description for Stage 2 derivation.",
+        description="Free-text description for Stage 2 derivation.",
     )
 
     @model_validator(mode="after")
@@ -102,27 +102,56 @@ class ProfileRequest(BaseModel):
         return self
 
 
+class EpidemiologicalParameters(BaseModel):
+    """
+    Simulation-ready epidemiological parameters.
+    """
+
+    r0: ParameterRange
+
+    incubation_days: ParameterRange
+
+    cfr: ParameterRange
+
+    infectious_period: ParameterRange
+
+
 class ProfileResponse(BaseModel):
     """
     Response returned by the Pathogen Profiler.
     """
 
     profile_id: str
+
     scenario_id: str
+
     version: int
 
     profile_type: ProfileType
 
-    matched_reference_disease_id: str | None = None
+    parameters: EpidemiologicalParameters
 
-    r0: ParameterRange | None = None
-    incubation_days: ParameterRange | None = None
-    cfr: ParameterRange | None = None
+    is_respiratory: bool
+
+    data_confidence: str
+
+    matched_reference_disease_id: str | None = None
 
     derivation_basis: DerivationBasis | None = None
 
     @model_validator(mode="after")
-    def validate_derivation_basis(self):
+    def validate_provenance(self):
+        # Stage 1 must point to its reference disease.
+        if (
+            self.profile_type == ProfileType.MATCHED
+            and self.matched_reference_disease_id is None
+        ):
+            raise ValueError(
+                "Matched profiles must include "
+                "matched_reference_disease_id."
+            )
+
+        # Stage 2 must explain its derivation.
         if (
             self.profile_type == ProfileType.DERIVED
             and self.derivation_basis is None
