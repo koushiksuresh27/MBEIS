@@ -96,7 +96,6 @@ def write_city_status(rows: list[dict]) -> None:
         "intervention_type", sample["intervention_type"]
     ).execute()
     _insert_with_retry(supabase, "city_status", rows)
-    print(f"[IO] Inserted {len(rows)} rows for {sample['intervention_type']}")
 
 
 def write_lockdown_recommendations(rows: list[dict]) -> None:
@@ -212,3 +211,55 @@ def is_simulation_current(scenario_id: str, origin_city: str, n_iterations: int)
     # otherwise trust profile version as the signal — profile version bumps
     # whenever scenario config changes in the SetupModal.
     return True
+
+
+def prune_old_scenarios(keep_limit: int = 5) -> list[str]:
+    """
+    Maintains a strict rolling buffer of the latest `keep_limit` scenarios in Supabase.
+    Older scenarios and all dependent records (seird_results, city_status,
+    resource_projections, lockdown_recommendations, pathogen_profiles) are purged
+    to keep the database within Supabase's free tier storage quota (< 30 MB).
+
+    Returns the list of pruned scenario IDs.
+    """
+    supabase = get_client()
+    try:
+        response = (
+            supabase.table("scenarios")
+            .select("scenario_id, created_at")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        all_scenarios = response.data or []
+        if len(all_scenarios) <= keep_limit:
+            print(f"[prune] Total scenarios ({len(all_scenarios)}) <= limit ({keep_limit}). Buffer within capacity.", flush=True)
+            return []
+
+        to_prune = all_scenarios[keep_limit:]
+        pruned_ids = []
+        tables_to_clean = [
+            "resource_projections",
+            "lockdown_recommendations",
+            "city_status",
+            "seird_results",
+            "pathogen_profiles",
+            "scenarios",
+        ]
+
+        print(f"[prune] Found {len(all_scenarios)} scenarios. Pruning {len(to_prune)} older scenario(s) to retain top {keep_limit}:", flush=True)
+        for s in to_prune:
+            sid = s.get("scenario_id")
+            if not sid:
+                continue
+            for table in tables_to_clean:
+                try:
+                    supabase.table(table).delete().eq("scenario_id", sid).execute()
+                except Exception as err:
+                    print(f"[prune] Warning: error cleaning {table} for scenario {sid}: {err}", flush=True)
+            pruned_ids.append(sid)
+            print(f"  [prune done] Removed scenario {sid} (created {s.get('created_at')})", flush=True)
+
+        return pruned_ids
+    except Exception as e:
+        print(f"[prune] Error during scenario buffer pruning: {e}", flush=True)
+        return []

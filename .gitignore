@@ -1,20 +1,30 @@
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
-# Caches
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
 .pytest_cache/
+.coverage
+htmlcov/
 .eslintcache
+.turbo/
 
-# Environment variables and secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 backend/.env
 frontend/.env
+outbreak-dashboard/.env
+outbreak-dashboard/.env.*
+!outbreak-dashboard/.env.example
 
-# Node / frontend dependencies and builds
 node_modules/
 dist/
 dist-ssr/
@@ -24,12 +34,12 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# IDE and OS files
 .vscode/
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea/
 .antigravity/
+.agents/
 .DS_Store
 *.suo
 *.ntvs*
@@ -40,25 +50,24 @@ lerna-debug.log*
 *.tmp
 Thumbs.db
 
-# Dynamic simulation outputs
 outputs/*
 !outputs/.gitkeep
 
-# Dynamically generated run-specific data (but keep static network v1 config)
 data/generated/profiles/
 data/generated/seird_results.csv
 data/generated/mobility_graph.json
 data/generated/mc_seeds.json
 backend/data/generated/
 
-# Agent and Architecture documentation
+run_log.txt
+output.txt
+debug_single_run.py
+visualize_results.py
+agent_sandbox_plan.txt
+featureadd.txt
+*.log
 AGENTS.md
 SESSION_LOG.md
 outbreak-response-os-v3.1.md
 
-# Simulation debugging, logs, outputs
-visualize_results.py
-run_log.txt
-output.txt
-debug_single_run.py
 

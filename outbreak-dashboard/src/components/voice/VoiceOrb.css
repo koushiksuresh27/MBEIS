@@ -1,0 +1,95 @@
+.vd-stage {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.vd-stage > .vd {
+  grid-area: 1 / 1;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.vd-stage > .vd.off {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.95);
+}
+
+.vd {
+  --hot: #FF4D2E;
+  display: grid;
+  gap: var(--dot-gap, 5px);
+  width: max-content;
+}
+
+.vd[data-state="listening"] {
+  --hot: #2347D9;
+}
+
+.vd[data-state="attention"] {
+  animation: vd-attention 2s infinite ease-in-out;
+}
+
+@keyframes vd-attention {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.05); filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.4)); }
+}
+
+.vd i {
+  width: var(--dot-size, 9px);
+  height: var(--dot-size, 9px);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--hot) calc(var(--v, 0) * 100%), #C9D1E0);
+  transform: scale(calc(1 + var(--v, 0) * 0.45));
+  will-change: transform, background;
+  display: inline-block;
+}
+
+.vd[data-variant="wave"] i {
+  border-radius: 3px;
+  transform: translateY(calc(var(--v, 0) * -5px)) scaleY(calc(1 + var(--v, 0) * 1.1));
+}
+
+.vd[data-state="thinking"] i {
+  animation: vd-think 2.4s ease-in-out infinite;
+  animation-delay: var(--d);
+  transform: none;
+}
+
+@keyframes vd-think {
+  0%, 45%, 100% {
+    background: #C9D1E0;
+    transform: scale(1);
+  }
+  15% {
+    background: #FF4D2E;
+    transform: scale(1.35);
+  }
+  30% {
+    background: #2347D9;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vd[data-state="thinking"] i {
+    animation: none;
+  }
+  .vd[data-state="attention"] {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

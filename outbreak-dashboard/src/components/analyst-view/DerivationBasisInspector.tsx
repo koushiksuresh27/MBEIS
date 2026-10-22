@@ -19,7 +19,7 @@ export default function DerivationBasisInspector({ scenarioId }: DerivationBasis
     <div className="bg-surface-variant rounded-xl border border-outline p-6 shadow-sm flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <h3 className="font-sans font-semibold text-on-background text-lg">
+        <h3 className="font-heading font-semibold text-on-background text-lg">
           Pathogen Profile Provenance
         </h3>
         {(() => {
@@ -78,7 +78,7 @@ export default function DerivationBasisInspector({ scenarioId }: DerivationBasis
       {/* Section 2: Derivation Basis */}
       {profile.derivation_basis && (
         <div className="flex flex-col gap-4">
-          <h4 className="font-sans font-semibold text-sm text-on-background">
+          <h4 className="font-heading font-semibold text-sm text-on-background">
             Derivation Basis
           </h4>
           <div className="flex flex-col gap-3">

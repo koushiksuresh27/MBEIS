@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --color-error: #ba1a1a;
   --color-surface-container-highest: #e3e2e8;
@@ -63,22 +65,32 @@
   --spacing-margin-mobile: 16px;
   --spacing-margin-desktop: 40px;
 
-  --font-sans: "Public Sans", sans-serif;
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-heading: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
   --font-label-sm: "JetBrains Mono", monospace;
-  --font-display-lg: "Public Sans", sans-serif;
-  --font-headline-lg: "Public Sans", sans-serif;
-  --font-headline-lg-mobile: "Public Sans", sans-serif;
-  --font-title-md: "Public Sans", sans-serif;
-  --font-body-md: "Public Sans", sans-serif;
+  --font-display-lg: "Sora", sans-serif;
+  --font-headline-lg: "Sora", sans-serif;
+  --font-headline-lg-mobile: "Sora", sans-serif;
+  --font-title-md: "Sora", sans-serif;
+  --font-body-md: "IBM Plex Sans", sans-serif;
 }
 
 @layer base {
-  @import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
   body {
-    @apply bg-background text-on-background font-sans antialiased;
+    font-family: var(--font-sans);
+    @apply bg-background text-on-background antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading) !important;
+    font-weight: 600; /* Sora SemiBold */
+    letter-spacing: -0.015em;
+  }
+
+  .font-heading {
+    font-family: var(--font-heading) !important;
   }
 }
 
@@ -96,25 +108,37 @@
 }
 
 @media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 
-  /* Hide dashboard completely */
+  html,
+  body {
+    margin: 0;
+    background: white !important;
+    color: black !important;
+  }
+
   #dashboard-root {
     display: none !important;
   }
 
-  /* Show print layout */
   #print-root {
     display: block !important;
+    position: static !important;
+    background: white !important;
+    color: black !important;
   }
 
   @page {
     size: A4;
-    margin: 15mm 20mm;
+    margin: 12mm 16mm;
+    margin-top: 12mm;
+    margin-bottom: 12mm;
   }
 
   body {
-    background: white !important;
-    color: black !important;
     font-size: 10pt;
     font-family: 'Times New Roman', serif;
   }
@@ -140,12 +164,56 @@
   }
 
   th {
-    background: #f0f0f0 !important;
+    background: #2E4A8C !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     font-weight: bold;
   }
 }
 
-/* Hidden by default, shown only during print */
+/* Hidden on screen, shown only during print via @media print above */
 #print-root {
-  display: none !important;
+  display: none;
 }
+
+/* Ripple dot grid loader */
+.ripple {
+  --size: 14px;
+  --gap: 8px;
+  --cols: 11;
+  --rows: 5;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), var(--size));
+  gap: var(--gap);
+}
+
+.ripple i {
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: #C9D1E0;
+  animation: ripple 2.4s ease-in-out infinite;
+  animation-delay: var(--d);
+}
+
+@keyframes ripple {
+  0%, 45%, 100% {
+    background: #C9D1E0;
+    transform: scale(1);
+  }
+  15% {
+    background: #FF4D2E;
+    transform: scale(1.35);
+  }
+  30% {
+    background: #2347D9;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple i {
+    animation: none;
+  }
+}

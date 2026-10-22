@@ -1,7 +1,4 @@
-import math
 import numpy as np
-import pandas as pd
-import random
 import os
 import csv
 from scipy.stats import qmc, triang
@@ -12,7 +9,8 @@ from backend.simulator.simulator_io import (
     write_seird_results,
     write_city_status,
     write_resource_projections,
-    register_intervention_type
+    register_intervention_type,
+    prune_old_scenarios
 )
 from backend.simulator.resource_calculator import calculate_resource_projections
 
@@ -38,14 +36,7 @@ CITIES = {
     "Guwahati":      {"pop": 1_349_253,  "lat": 26.1445, "lon": 91.7362},
 }
 
-# Local transmission multipliers per intervention.
-# These scale beta (contact rate) to reflect policy-driven changes
-# in local contact density — independent of the mobility/travel layer.
-#   none:      no policy, full contact density
-#   rail_only: transit halt grounds flights + reduces inter-city bus/rail
-#              contact density reduced ~15%
-#   partial:   partial lockdown, 40% reduction in local contacts
-#   full:      strict quarantine, 75% reduction in local contacts
+
 LOCAL_TRANSMISSION_MULTIPLIER = {
     'none':      1.00,
     'rail_only': 0.85,
@@ -53,21 +44,10 @@ LOCAL_TRANSMISSION_MULTIPLIER = {
     'full':      0.25,
 }
 
-# Modal share for inter-city passenger movement in India.
-# Source: NITI Aayog transport modal share estimates.
-# Road 50%, Rail 30%, Air 20% — used as baseline weights in apply_intervention.
+# Road 40%, Rail 40%, Air 20%, used as baseline weights in apply_intervention.
 BASE_ROAD_SHARE = 0.40
 BASE_RAIL_SHARE = 0.40
 BASE_AIR_SHARE  = 0.20
-
-
-def haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlmb = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
-    return 2 * R * math.asin(math.sqrt(a))
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -79,58 +59,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * 2 * np.arcsin(np.sqrt(a))
 
 
-def build_mobility_matrix():
-    """Gravity model: W_ij = pop_i * pop_j / distance_ij^2, normalized to [0,1]."""
-    names = list(CITIES.keys())
-    n = len(names)
-    W = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            d = haversine_km(CITIES[names[i]]["lat"], CITIES[names[i]]["lon"],
-                              CITIES[names[j]]["lat"], CITIES[names[j]]["lon"])
-            if d > 0:
-                W[i, j] = (CITIES[names[i]]["pop"] * CITIES[names[j]]["pop"]) / (d ** 2)
-    if W.max() > 0:
-        W = W / W.max()
-    return names, W
 
-
-class MobilityCalibrator:
-    def __init__(self, alpha=3.5, beta=0.03):
-        # alpha: max boost factor for zero-distance commuter/informal travel
-        # beta:  decay rate (km^-1). At beta=0.03, boost falls below 1.1x past ~80km
-        #        and is negligible by ~150km.
-        # NOTE: beta must stay large enough that the boost is neutral for national-hub
-        # distances (>500km). The radiation-model raw weights already encode long-range
-        # decay — this term exists only to capture short-range commuter/informal travel
-        # NOT captured in the radiation model. Double-counting at hub distances causes
-        # aviation to be structurally unable to compensate for terrestrial dominance.
-        # DO NOT set beta=0.005 — that was the double-decay bug.
-        self.alpha = alpha
-        self.beta = beta
-
-    def apply_distance_decay(self, raw_matrix, distance_matrix):
-        # Short-range commuter boost: S_ij = 1 + alpha * e^(-beta * d_ij)
-        # Becomes negligible (<1.1x) past ~80km at beta=0.03.
-        # Applied to road layer only — rail OD matrix already encodes route distances.
-        decay_scalar_matrix = 1 + self.alpha * np.exp(-self.beta * distance_matrix)
-        return raw_matrix * decay_scalar_matrix
-
-    def apply_row_stochastic_bound(self, adjusted_matrix, outbound_capacity_array):
-        """
-        Converts edges to probabilities and bounds them by physical capacity.
-        Includes a 1e-9 epsilon to prevent division-by-zero NaN cascades.
-        """
-        row_sums = adjusted_matrix.sum(axis=1, keepdims=True) + 1e-9
-        probability_matrix = adjusted_matrix / row_sums
-        return probability_matrix * outbound_capacity_array
-
-
-# Approximate structural capacities (daily outbound pax) + coordinates.
-# THRISSUR and THIRUVANANTHAPURAM retained here for structural reference
-# but are NOT in the CITIES dict (removed in 17→15 node fix).
 STRUCTURAL_DATA = {
     "DELHI":             {"lat": 28.6139, "lon": 77.2090, "cap": 450000},
     "MUMBAI":            {"lat": 19.0760, "lon": 72.8777, "cap": 400000},
@@ -173,11 +102,11 @@ def build_composite_matrix(
         matrices — dict with keys 'road', 'rail', 'air', each an (n, n) ndarray
     """
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    if meta_edges_path is None:
+    if meta_edges_path is None or not os.path.exists(meta_edges_path):
         meta_edges_path = os.path.join(BASE_DIR, "meta_mobility_edges.csv")
-    if dgca_path is None:
+    if dgca_path is None or not os.path.exists(dgca_path):
         dgca_path = os.path.join(BASE_DIR, "dgca_annual_weights.csv")
-    if irctc_path is None:
+    if irctc_path is None or not os.path.exists(irctc_path):
         irctc_path = os.path.join(BASE_DIR, "irctc_mobility_edges.csv")
 
     names = list(CITIES.keys())
@@ -188,22 +117,12 @@ def build_composite_matrix(
     W_aviation = np.zeros((n, n))
     W_rail     = np.zeros((n, n))
 
-    distance_matrix = np.zeros((n, n))
     capacities = np.zeros((n, 1))
 
-    # ── Build geo-distance matrix and capacity array ───────────────────────
     for name1 in names:
         i = name_to_idx[name1.upper()]
         data1 = STRUCTURAL_DATA.get(name1.upper())
         capacities[i, 0] = data1["cap"] if data1 else 50000
-        for name2 in names:
-            j = name_to_idx[name2.upper()]
-            data2 = STRUCTURAL_DATA.get(name2.upper())
-            if data1 and data2 and i != j:
-                distance_matrix[i, j] = haversine_distance(
-                    data1["lat"], data1["lon"],
-                    data2["lat"], data2["lon"]
-                )
 
     # ── 1. Load road layer (meta_mobility_edges.csv) ───────────────────────
     # raw_daily_travelers = Meta outbound fraction × city pop × radiation weight
@@ -249,22 +168,16 @@ def build_composite_matrix(
     else:
         print(f"[engine] WARNING: IRCTC file not found at {irctc_path}")
 
-   # ── 4. Apply calibrator physics ────────────────────────────────────────
-    # All three matrices now carry real units (travelers/day or passengers/day).
-    # Distance decay removed from road — raw_daily_travelers already encodes
-    # short-range dominance via T_i × radiation weight (Mumbai→Pune at 428k
-    # naturally dominates without any boost).
-    # apply_row_stochastic_bound normalizes each layer independently so that
-    # relative corridor magnitudes (road >> rail ≈ air) survive into the blend.
-    calibrator = MobilityCalibrator()
-    W_road_final = calibrator.apply_row_stochastic_bound(W_raw_road,  capacities)
-    W_air_final  = calibrator.apply_row_stochastic_bound(W_aviation,  capacities)
-    W_rail_final = calibrator.apply_row_stochastic_bound(W_rail,      capacities)
+    # Precompute unperturbed baseline row sums for Baseline-Anchored Normalization
+    W_blended_baseline = (
+        BASE_ROAD_SHARE * W_raw_road
+        + BASE_RAIL_SHARE * W_rail
+        + BASE_AIR_SHARE  * W_aviation
+    )
+    baseline_row_sums = W_blended_baseline.sum(axis=1, keepdims=True)
+    safe_baseline_row_sums = np.where(baseline_row_sums == 0, 1e-9, baseline_row_sums)
 
     matrices = {
-        'road': W_road_final,
-        'rail': W_rail_final,
-        'air':  W_air_final,
         'raw': {
             'road': W_raw_road,
             'rail': W_rail,
@@ -272,6 +185,7 @@ def build_composite_matrix(
         },
         'capacities': capacities,
         'name_to_idx': name_to_idx,
+        'baseline_row_sums': safe_baseline_row_sums,
     }
 
     return names, matrices
@@ -279,37 +193,31 @@ def build_composite_matrix(
 
 INTERVENTION_PARAMS = {
     'none':      {'road': 1.00, 'rail': 1.00, 'air': 1.00, 'flow': 1.00},
-    'rail_only': {'road': 1.00, 'rail': 0.00, 'air': 1.00, 'flow': 0.60},
-    'partial':   {'road': 0.33, 'rail': 0.33, 'air': 0.33, 'flow': 0.33},
-    'full':      {'road': 0.05, 'rail': 0.00, 'air': 0.05, 'flow': 0.05},
+    'rail_only': {'road': 1.00, 'rail': 0.00, 'air': 1.00, 'flow': 1.00},
+    'partial':   {'road': 0.33, 'rail': 0.33, 'air': 0.33, 'flow': 1.00},
+    'full':      {'road': 0.05, 'rail': 0.00, 'air': 0.05, 'flow': 1.00},
 }
 
 
-def apply_intervention(matrices: dict, intervention_type: str, edge_cuts: list = None) -> np.ndarray:
+def apply_intervention(matrices: dict, intervention_type: str, edge_cuts: list = None, city_quarantines: list = None, modal_shares: dict = None, edge_capacities: dict = None) -> np.ndarray:
     """
-    Three-layer mobility blending for intervention scenarios.
+    Three-layer mobility blending for intervention scenarios with Baseline-Anchored Normalization.
 
-    Baseline modal share (NITI Aayog inter-city estimates):
-        Road 50%  Rail 30%  Air 20%
-
-    Intervention logic:
-        none      — all modes at full share (100% mobility)
-        rail_only — "Transit Halt": ground flights, reduce road to 30% of
-                    baseline road share, keep rail running at full share.
-                    Road is cut because inter-city highway movement drops
-                    significantly when transit is halted. Rail continues
-                    as the primary remaining inter-city mode.
-                    Total mobility retained: 45% of baseline.
-
-        partial   — "Partial Lockdown": ground flights, halve road and rail.
-                    Total mobility retained: 40% of baseline.
-
-        full      — "Full Quarantine": ground flights and rail entirely.
-                    Essential road traffic only (15% of baseline road share).
-                    Total mobility retained: 7.5% of baseline.
-
-    Escalation is monotone: each stricter intervention is a superset of
-    restrictions from the one below it.
+    Mechanics & Baseline-Anchored Normalization:
+        1. Directional edge cuts and corridor capacity throttles are applied to raw layers.
+        2. Mode weights are scaled: (road_share * params['road'], etc.) and summed into W_blended.
+        3. BASELINE-ANCHORED NORMALIZATION:
+           W_blended is normalized by the UNPERTURBED baseline row sums S_i^(0), NOT by the
+           post-cut/post-intervention row sums:
+               W_normalized = W_blended / S_i^(0)
+           This resolves two critical modeling artifacts:
+             a. No Spillover Artifact on Edge Cuts: Severing a corridor (e.g. Delhi->Mumbai = 0)
+                reduces outbound volume from Delhi without artificially inflating flows to other
+                destinations (trips are aborted/canceled rather than forced onto other cities).
+             b. No Modal Multiplier Cancellation: Uniform throttles (e.g. road=rail=air=0.33)
+                directly reduce matrix volume by 0.33x without canceling in the denominator.
+        4. Outbound nodal physical capacity bounds are applied (W_normalized * capacities).
+        5. Optional flow factor is applied if non-unity (W_final *= params['flow']).
     """
     params = INTERVENTION_PARAMS.get(intervention_type, INTERVENTION_PARAMS['none'])
     if intervention_type not in INTERVENTION_PARAMS:
@@ -319,13 +227,11 @@ def apply_intervention(matrices: dict, intervention_type: str, edge_cuts: list =
     capacities  = matrices['capacities']
     name_to_idx = matrices['name_to_idx']
 
-    # Copy raw matrices — never mutate originals (shared across all intervention runs)
     road = raw['road'].copy()
     rail = raw['rail'].copy()
     air  = raw['air'].copy()
 
     # Apply per-edge, per-mode cuts by zeroing specific matrix cells
-    # Each cut is directional (src→tgt only). Modes are independent.
     if edge_cuts:
         for cut in edge_cuts:
             i = name_to_idx.get(cut['src'].upper())
@@ -337,46 +243,75 @@ def apply_intervention(matrices: dict, intervention_type: str, edge_cuts: list =
             if 'rail' in cut['modes']: rail[i, j] = 0.0
             if 'air'  in cut['modes']: air[i, j]  = 0.0
 
+    # Apply dynamic edge capacity scaling (bidirectional corridor capacity)
+    if edge_capacities:
+        for key, cap in edge_capacities.items():
+            parts = key.split('-')
+            if len(parts) == 2:
+                src, tgt = parts[0].strip().upper(), parts[1].strip().upper()
+                i = name_to_idx.get(src)
+                j = name_to_idx.get(tgt)
+                if i is not None and j is not None:
+                    cap_clamped = max(0.0, min(1.0, float(cap)))
+                    road[i, j] *= cap_clamped; road[j, i] *= cap_clamped
+                    rail[i, j] *= cap_clamped; rail[j, i] *= cap_clamped
+                    air[i, j]  *= cap_clamped; air[j, i]  *= cap_clamped
+
+    if city_quarantines:
+        name_to_idx = matrices['name_to_idx']
+        for city in city_quarantines:
+            idx = next(
+                (name_to_idx[k] for k in name_to_idx 
+                 if k == city.strip().upper()), None
+            )
+            if idx is None:
+                print(f"[engine] WARNING: city_quarantine '{city}' not found, skipping")
+                continue
+            road[idx, :] = 0.0; road[:, idx] = 0.0
+            rail[idx, :] = 0.0; rail[:, idx] = 0.0
+            air[idx,  :] = 0.0; air[:,  idx] = 0.0
+
+    road_share = modal_shares['road'] if (modal_shares and 'road' in modal_shares) else BASE_ROAD_SHARE
+    rail_share = modal_shares['rail'] if (modal_shares and 'rail' in modal_shares) else BASE_RAIL_SHARE
+    air_share  = modal_shares['air']  if (modal_shares and 'air'  in modal_shares) else BASE_AIR_SHARE
+
     W_blended = (
-        BASE_ROAD_SHARE * params['road'] * road
-        + BASE_RAIL_SHARE * params['rail'] * rail
-        + BASE_AIR_SHARE  * params['air']  * air
+        road_share * params['road'] * road
+        + rail_share * params['rail'] * rail
+        + air_share  * params['air']  * air
     )
 
-    row_sums = W_blended.sum(axis=1, keepdims=True) + 1e-9
-    W_final  = (W_blended / row_sums) * capacities
-    W_final *= params['flow']
+    # Baseline-Anchored Normalization:
+    # Denominator is the unperturbed baseline row sum S_i^(0), NOT the post-cut/post-intervention row sum.
+    if modal_shares:
+        W_blended_base = (
+            road_share * raw['road']
+            + rail_share * raw['rail']
+            + air_share  * raw['air']
+        )
+        base_denom = W_blended_base.sum(axis=1, keepdims=True)
+        safe_base_denom = np.where(base_denom == 0, 1e-9, base_denom)
+    else:
+        safe_base_denom = matrices.get('baseline_row_sums')
+        if safe_base_denom is None:
+            W_blended_base = (
+                BASE_ROAD_SHARE * raw['road']
+                + BASE_RAIL_SHARE * raw['rail']
+                + BASE_AIR_SHARE  * raw['air']
+            )
+            base_denom = W_blended_base.sum(axis=1, keepdims=True)
+            safe_base_denom = np.where(base_denom == 0, 1e-9, base_denom)
+
+    W_normalized = np.where(safe_base_denom <= 1e-9, 0.0, W_blended / safe_base_denom)
+    W_final  = W_normalized * capacities
+    if 'flow' in params and params['flow'] != 1.0:
+        W_final *= params['flow']
     return W_final
 
 
 def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, local_mult,
                                k_sensitivity=35.0):
-    """
-    SEIR-b incidence calculation with endogenous behavioral feedback.
-
-    Upgrades the classical fixed-beta SEIRD to an SEIR-b model by adding
-    an exponential decay behavioral multiplier driven by local prevalence.
-
-    Two independent suppression axes:
-      - local_mult     : exogenous government intervention (top-down)
-      - behavior_mult  : endogenous societal risk-response (bottom-up)
-
-    Behavioral dampening formula:
-      behavior_mult = exp(-k * prevalence)
-      where prevalence = I / N (active cases / city population)
-
-    Calibration: k=35 selected via parameter sweep across all 15 cities.
-    At k=35, zero-NPI baseline peaks at ~1.9% prevalence per city, correctly
-    overshooting ICMR-corrected empirical Delta peaks (~1.4-1.6%) to account
-    for the NPI suppression present in real-world data but absent in our
-    Baseline scenario.
-
-    Limitation: uses true I(t)/N (perfect information). In reality, public
-    behavior responds to reported cases with 1-2 week lag. Acknowledged in
-    model limitations.
-
-    Citation: Funk et al. 2010 (PNAS); SEIR-b literature (2024-25).
-    """
+    
     N_safe = np.maximum(N, 1)
 
     # 1. Local prevalence (active infections as fraction of city population)
@@ -394,12 +329,15 @@ def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, lo
     total_I = I + imported_I
     force_of_infection = beta * (total_I / N_safe)
 
+    force_of_infection = np.clip(force_of_infection, 0.0, 50.0)
+
     if force_of_infection.max() > 1.0:
         max_idx = force_of_infection.argmax()
         print(f"WARNING: force_of_infection exceeded 1.0 at index {max_idx} "
               f"(val: {force_of_infection[max_idx]:.3f})")
 
     p_infection = 1.0 - np.exp(-force_of_infection)
+    p_infection = np.clip(p_infection, 0.0, 1.0)
     S_int = S.astype(int)
     new_exposed = rng.binomial(n=S_int, p=p_infection)
     return new_exposed.astype(float)
@@ -408,19 +346,25 @@ def calculate_daily_infections(S, I, imported_I, N, R0, infectious_days, rng, lo
 def run_mc_iteration(
     names, matrices, origin_city, intervention,
     r0, incubation_days, cfr, infectious_period, rng,
-    seed_infections=500, k_sensitivity=35.0, edge_cuts=None
+    seed_infections=500, k_sensitivity=35.0, edge_cuts=None, city_quarantines=None,
+    vaccination=None, festivals=None
 ):
     """
     Single Monte Carlo iteration for a fixed intervention.
+    Supports optional vaccination rollout and mass gathering / festival shocks.
     matrices: dict with keys 'road', 'rail', 'air' from build_composite_matrix.
     """
+    from backend.simulator.seirv_engine import build_festival_multiplier, VaccinationParams
+
     n = len(names)
     pops = np.array([CITIES[c]["pop"] for c in names], dtype=float)
     S = pops.copy()
-    E = np.zeros(n)
-    I = np.zeros(n)
-    R = np.zeros(n)
-    D = np.zeros(n)
+    E = np.zeros(n, dtype=float)
+    I = np.zeros(n, dtype=float)
+    R = np.zeros(n, dtype=float)
+    D = np.zeros(n, dtype=float)
+    V = np.zeros(n, dtype=float)
+    V_pending = np.zeros(n, dtype=float)
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
@@ -432,8 +376,8 @@ def run_mc_iteration(
             f"Ensure run_simulation normalized it before calling."
         )
 
-    sigma = 1.0 / incubation_days
-    gamma = 1.0 / infectious_period
+    sigma = 1.0 / max(incubation_days, 0.1)
+    gamma = 1.0 / max(infectious_period, 0.1)
 
     national_infected     = np.zeros(N_DAYS)
     national_deaths       = np.zeros(N_DAYS)
@@ -441,33 +385,78 @@ def run_mc_iteration(
     city_active           = np.zeros((N_DAYS, n))
 
     # Build blended W matrix once per iteration (fixed for the full N_DAYS)
-    W = apply_intervention(matrices, intervention, edge_cuts=edge_cuts)
+    W = apply_intervention(matrices, intervention, edge_cuts=edge_cuts, city_quarantines=city_quarantines)
+
+    vax_params = VaccinationParams.from_dict(vaccination)
+    fest_list = festivals or []
+    city_idx_map = {c: i for i, c in enumerate(names)}
 
     for day in range(N_DAYS):
+        fmult = build_festival_multiplier(day, fest_list, city_idx_map, n)
         local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(intervention, 1.0)
+        N_safe = np.maximum(pops, 1.0)
 
-        import_pressure = W.T @ (I / np.maximum(pops, 1))
+        import_pressure = W.T @ (I / N_safe)
 
-        total_new_infections = calculate_daily_infections(
-            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult,
-            k_sensitivity=k_sensitivity
-        )
+        prevalence = I / N_safe
+        behavior_mult = np.exp(-k_sensitivity * prevalence)
+        effective_mult = local_mult * behavior_mult * fmult
+        beta = (r0 / max(infectious_period, 0.1)) * effective_mult
+        total_I = I + import_pressure
+        force_of_infection = beta * (total_I / N_safe)
+        force_of_infection = np.clip(force_of_infection, 0.0, 50.0)
 
-        new_exposed_to_infectious = sigma * E
-        new_removed  = gamma * I
-        new_deaths   = new_removed * cfr
-        new_recovered = new_removed * (1 - cfr)
+        force_V = (1.0 - vax_params.efficacy) * force_of_infection if vax_params.enabled else force_of_infection
 
-        # Cap flows to available compartment sizes — mass conservation guard
-        total_new_infections      = np.minimum(total_new_infections, S)
-        new_exposed_to_infectious = np.minimum(new_exposed_to_infectious, E)
-        new_removed               = np.minimum(new_removed, I)
+        p_infection = np.clip(1.0 - np.exp(-force_of_infection), 0.0, 1.0)
+        p_infection_V = np.clip(1.0 - np.exp(-force_V), 0.0, 1.0)
 
-        S = S - total_new_infections
-        E = E + total_new_infections - new_exposed_to_infectious
-        I = I + new_exposed_to_infectious - new_removed
-        R = R + new_recovered
-        D = D + new_deaths
+        # 4. Outflows from S (Competing risk: infection vs vaccination)
+        dE_from_S = rng.binomial(n=S.astype(int), p=p_infection).astype(float)
+        dV_new = np.zeros(n)
+        if vax_params.enabled and day >= vax_params.start_day:
+            eligible = S + R
+            total_doses = vax_params.daily_rate * pops
+            dV_new = np.minimum(S, total_doses * np.where(eligible > 0, S / eligible, 0.0))
+
+        total_S_out = dE_from_S + dV_new
+        scale = np.where(total_S_out > S, S / np.maximum(total_S_out, 1e-9), 1.0)
+        dE_from_S *= scale
+        dV_new *= scale
+
+        # 5. Outflows from V (Breakthrough infection vs antibody waning)
+        dE_from_V = rng.binomial(n=V.astype(int), p=p_infection_V).astype(float) if vax_params.enabled else np.zeros(n)
+        omega = (1.0 / vax_params.waning_mean_days) if (vax_params.enabled and vax_params.waning_mean_days) else 0.0
+        dS_waned = omega * V
+        total_V_out = dE_from_V + dS_waned
+        scale_V = np.where((total_V_out > V) & (total_V_out > 0), V / np.maximum(total_V_out, 1e-9), 1.0)
+        dE_from_V *= scale_V
+        dS_waned *= scale_V
+
+        # 6. V_pending onset lag (maturation delay)
+        onset_rate = 1.0 / max(vax_params.onset_days, 1)
+        dV_graduated = np.clip(onset_rate * V_pending, 0.0, V_pending)
+        dV_pending_in = dV_new
+
+        # 7. Transitions: E -> I
+        total_new_infections = dE_from_S + dE_from_V
+        new_exposed_to_infectious = np.clip(sigma * E, 0.0, E)
+
+        # 8. Transitions: I -> R / D with severity protection for breakthrough cases
+        new_removed = np.clip(gamma * I, 0.0, I)
+        breakthrough_ratio = np.where(total_new_infections > 0, dE_from_V / np.maximum(total_new_infections, 1e-9), 0.0)
+        effective_cfr = cfr * (1.0 - vax_params.severity_efficacy * breakthrough_ratio)
+        new_deaths = new_removed * effective_cfr
+        new_recovered = new_removed - new_deaths
+
+        # 9. Update state with mass-conservation bounds
+        S = np.clip(S - dE_from_S - dV_new + dS_waned, 0.0, pops)
+        E = np.clip(E + total_new_infections - new_exposed_to_infectious, 0.0, pops)
+        I = np.clip(I + new_exposed_to_infectious - new_removed, 0.0, pops)
+        R = np.clip(R + new_recovered, 0.0, pops)
+        D = np.clip(D + new_deaths, 0.0, pops)
+        V = np.clip(V + dV_graduated - dE_from_V - dS_waned, 0.0, pops)
+        V_pending = np.clip(V_pending + dV_pending_in - dV_graduated, 0.0, pops)
 
         national_infected[day]       = I.sum()
         national_deaths[day]         = D.sum()
@@ -476,9 +465,6 @@ def run_mc_iteration(
 
     return national_infected, national_deaths, national_new_infections, city_active
 
-
-def triangular(low, mode, high, size):
-    return np.random.triangular(float(low), float(mode), float(high), size)
 
 
 def run_simulation(
@@ -489,9 +475,12 @@ def run_simulation(
     seed_infections: int = 500,
     k_sensitivity: float = 35.0,
     edge_cuts=None,
+    city_quarantines=None,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
-    irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
+    irctc_path: str = "backend/simulator/irctc_mobility_edges.csv",
+    vaccination=None,
+    festivals=None
 ) -> dict:
     """
     Runs MC simulation for all specified interventions and writes to Supabase.
@@ -521,11 +510,16 @@ def run_simulation(
     city_rows_all  = []
 
     # QMC parameter sampling — Sobol low-discrepancy sequence
+    # Samples the 4-dimensional biological parameter space:
+
     m = int(np.ceil(np.log2(n_iterations)))
     sampler = qmc.Sobol(d=4, scramble=True, seed=42)
     uniform_samples = sampler.random_base2(m=m)[:n_iterations]
 
-    def to_triang(u, low, mode, high):
+    def to_triang(u, low, mode, high, default_low=1.5, default_mode=2.25, default_high=3.0):
+        if low is None or mode is None or high is None:
+            low, mode, high = default_low, default_mode, default_high
+        low, mode, high = float(low), float(mode), float(high)
         scale = high - low
         if scale == 0:
             return np.full_like(u, low)
@@ -533,19 +527,27 @@ def run_simulation(
         return triang.ppf(u, c=c, loc=low, scale=scale)
 
     r0_samples  = to_triang(uniform_samples[:, 0],
-                             profile["r0_low"], profile["r0_most_likely"], profile["r0_high"])
+                             profile.get("r0_low"), profile.get("r0_most_likely"), profile.get("r0_high"),
+                             default_low=1.5, default_mode=2.25, default_high=3.0)
     inc_samples = to_triang(uniform_samples[:, 1],
-                             profile["incubation_days_low"],
-                             profile["incubation_days_most_likely"],
-                             profile["incubation_days_high"])
+                             profile.get("incubation_days_low"),
+                             profile.get("incubation_days_most_likely"),
+                             profile.get("incubation_days_high"),
+                             default_low=2.0, default_mode=8.0, default_high=14.0)
     cfr_samples = to_triang(uniform_samples[:, 2],
-                             profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"])
+                             profile.get("cfr_low"), profile.get("cfr_most_likely"), profile.get("cfr_high"),
+                             default_low=0.01, default_mode=0.021, default_high=0.07)
 
-    if "infectious_period_most_likely" in profile:
+    if (
+        profile.get("infectious_period_most_likely") is not None
+        and profile.get("infectious_period_low") is not None
+        and profile.get("infectious_period_high") is not None
+    ):
         inf_samples = to_triang(uniform_samples[:, 3],
                                 profile["infectious_period_low"],
                                 profile["infectious_period_most_likely"],
-                                profile["infectious_period_high"])
+                                profile["infectious_period_high"],
+                                default_low=5.0, default_mode=7.0, default_high=10.0)
     else:
         inf_samples = np.full(n_iterations, 7.0)
 
@@ -567,7 +569,10 @@ def run_simulation(
                 rng,
                 seed_infections=seed_infections,
                 k_sensitivity=k_sensitivity,
-                edge_cuts=edge_cuts
+                edge_cuts=edge_cuts,
+                city_quarantines=city_quarantines,
+                vaccination=vaccination,
+                festivals=festivals
             )
             all_infected[it]       = inf
             all_deaths[it]         = dth
@@ -622,26 +627,20 @@ def run_simulation(
         write_resource_projections(resource_rows)
         print(f"  [done] resource_projections written for intervention={inv_type}")
 
+    # Enforce rolling buffer: keep only the latest 5 scenarios in Supabase
+    try:
+        prune_old_scenarios(keep_limit=5)
+    except Exception as e:
+        print(f"[prune] Rolling buffer maintenance failed: {e}", flush=True)
+
     return {
         "seird_results": seird_rows_all,
         "city_status":   city_rows_all,
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PHASED INTERVENTION RUNNER
-# Completely additive — zero changes to functions above.
-#
-# Schedule format:
-#   [
-#       {"from_day": 1,   "to_day": 30,  "intervention": "full"},
-#       {"from_day": 31,  "to_day": 60,  "intervention": "partial"},
-#       {"from_day": 61,  "to_day": 180, "intervention": "none"},
-#   ]
 # from_day and to_day are 1-indexed, inclusive on both ends.
-# Gaps between phases default to "none".
-# ─────────────────────────────────────────────────────────────────────────────
-
 
 def _resolve_intervention_for_day(day_1indexed: int, schedule: list) -> str:
     """
@@ -657,23 +656,21 @@ def _resolve_intervention_for_day(day_1indexed: int, schedule: list) -> str:
 def run_phased_mc_iteration(
     names, matrices, origin_city, schedule,
     r0, incubation_days, cfr, infectious_period, rng,
-    edge_cuts=None, seed_infections=500, k_sensitivity=35.0
+    edge_cuts=None, city_quarantines=None, seed_infections=500, k_sensitivity=35.0,
+    vaccination=None, festivals=None
 ):
-    """
-    Identical to run_mc_iteration except W is resolved per day from a schedule.
-    Pre-caches blended W matrices for each unique intervention to avoid
-    recomputing apply_intervention on every day.
+    
+    from backend.simulator.seirv_engine import build_festival_multiplier, VaccinationParams
 
-    Returns: (national_infected, national_deaths, national_new_infections, city_active)
-    Same shape as run_mc_iteration — drop-in compatible.
-    """
     n = len(names)
     pops = np.array([CITIES[c]["pop"] for c in names], dtype=float)
     S = pops.copy()
-    E = np.zeros(n)
-    I = np.zeros(n)
-    R = np.zeros(n)
-    D = np.zeros(n)
+    E = np.zeros(n, dtype=float)
+    I = np.zeros(n, dtype=float)
+    R = np.zeros(n, dtype=float)
+    D = np.zeros(n, dtype=float)
+    V = np.zeros(n, dtype=float)
+    V_pending = np.zeros(n, dtype=float)
 
     if origin_city in names:
         origin_idx = names.index(origin_city)
@@ -685,8 +682,8 @@ def run_phased_mc_iteration(
             f"Ensure run_phased_simulation normalized it before calling."
         )
 
-    sigma = 1.0 / incubation_days
-    gamma = 1.0 / infectious_period
+    sigma = 1.0 / max(incubation_days, 0.1)
+    gamma = 1.0 / max(infectious_period, 0.1)
 
     national_infected      = np.zeros(N_DAYS)
     national_deaths        = np.zeros(N_DAYS)
@@ -696,9 +693,13 @@ def run_phased_mc_iteration(
     # Pre-cache blended W matrices for each unique intervention in the schedule
     unique_interventions = set(p["intervention"] for p in schedule) | {"none"}
     W_cache = {
-        inv: apply_intervention(matrices, inv, edge_cuts=edge_cuts)
+        inv: apply_intervention(matrices, inv, edge_cuts=edge_cuts, city_quarantines=city_quarantines)
         for inv in unique_interventions
     }
+
+    vax_params = VaccinationParams.from_dict(vaccination)
+    fest_list = festivals or []
+    city_idx_map = {c: i for i, c in enumerate(names)}
 
     for day in range(N_DAYS):
         day_1indexed = day + 1
@@ -706,27 +707,70 @@ def run_phased_mc_iteration(
 
         W = W_cache[current_intervention]
         local_mult = LOCAL_TRANSMISSION_MULTIPLIER.get(current_intervention, 1.0)
+        fmult = build_festival_multiplier(day, fest_list, city_idx_map, n)
+        N_safe = np.maximum(pops, 1.0)
 
-        import_pressure = W.T @ (I / np.maximum(pops, 1))
-        total_new_infections = calculate_daily_infections(
-            S, I, import_pressure, pops, r0, infectious_period, rng, local_mult,
-            k_sensitivity=k_sensitivity
-        )
+        import_pressure = W.T @ (I / N_safe)
 
-        new_exposed_to_infectious = sigma * E
-        new_removed   = gamma * I
-        new_deaths    = new_removed * cfr
-        new_recovered = new_removed * (1 - cfr)
+        prevalence = I / N_safe
+        behavior_mult = np.exp(-k_sensitivity * prevalence)
+        effective_mult = local_mult * behavior_mult * fmult
+        beta = (r0 / max(infectious_period, 0.1)) * effective_mult
+        total_I = I + import_pressure
+        force_of_infection = beta * (total_I / N_safe)
+        force_of_infection = np.clip(force_of_infection, 0.0, 50.0)
 
-        total_new_infections      = np.minimum(total_new_infections, S)
-        new_exposed_to_infectious = np.minimum(new_exposed_to_infectious, E)
-        new_removed               = np.minimum(new_removed, I)
+        force_V = (1.0 - vax_params.efficacy) * force_of_infection if vax_params.enabled else force_of_infection
 
-        S = S - total_new_infections
-        E = E + total_new_infections - new_exposed_to_infectious
-        I = I + new_exposed_to_infectious - new_removed
-        R = R + new_recovered
-        D = D + new_deaths
+        p_infection = np.clip(1.0 - np.exp(-force_of_infection), 0.0, 1.0)
+        p_infection_V = np.clip(1.0 - np.exp(-force_V), 0.0, 1.0)
+
+        # 4. Outflows from S (Competing risk: infection vs vaccination)
+        dE_from_S = rng.binomial(n=S.astype(int), p=p_infection).astype(float)
+        dV_new = np.zeros(n)
+        if vax_params.enabled and day >= vax_params.start_day:
+            eligible = S + R
+            total_doses = vax_params.daily_rate * pops
+            dV_new = np.minimum(S, total_doses * np.where(eligible > 0, S / eligible, 0.0))
+
+        total_S_out = dE_from_S + dV_new
+        scale = np.where(total_S_out > S, S / np.maximum(total_S_out, 1e-9), 1.0)
+        dE_from_S *= scale
+        dV_new *= scale
+
+        # 5. Outflows from V (Breakthrough infection vs antibody waning)
+        dE_from_V = rng.binomial(n=V.astype(int), p=p_infection_V).astype(float) if vax_params.enabled else np.zeros(n)
+        omega = (1.0 / vax_params.waning_mean_days) if (vax_params.enabled and vax_params.waning_mean_days) else 0.0
+        dS_waned = omega * V
+        total_V_out = dE_from_V + dS_waned
+        scale_V = np.where((total_V_out > V) & (total_V_out > 0), V / np.maximum(total_V_out, 1e-9), 1.0)
+        dE_from_V *= scale_V
+        dS_waned *= scale_V
+
+        # 6. V_pending onset lag (maturation delay)
+        onset_rate = 1.0 / max(vax_params.onset_days, 1)
+        dV_graduated = np.clip(onset_rate * V_pending, 0.0, V_pending)
+        dV_pending_in = dV_new
+
+        # 7. Transitions: E -> I
+        total_new_infections = dE_from_S + dE_from_V
+        new_exposed_to_infectious = np.clip(sigma * E, 0.0, E)
+
+        # 8. Transitions: I -> R / D with severity protection for breakthrough cases
+        new_removed = np.clip(gamma * I, 0.0, I)
+        breakthrough_ratio = np.where(total_new_infections > 0, dE_from_V / np.maximum(total_new_infections, 1e-9), 0.0)
+        effective_cfr = cfr * (1.0 - vax_params.severity_efficacy * breakthrough_ratio)
+        new_deaths = new_removed * effective_cfr
+        new_recovered = new_removed - new_deaths
+
+        # 9. Update state with mass-conservation bounds
+        S = np.clip(S - dE_from_S - dV_new + dS_waned, 0.0, pops)
+        E = np.clip(E + total_new_infections - new_exposed_to_infectious, 0.0, pops)
+        I = np.clip(I + new_exposed_to_infectious - new_removed, 0.0, pops)
+        R = np.clip(R + new_recovered, 0.0, pops)
+        D = np.clip(D + new_deaths, 0.0, pops)
+        V = np.clip(V + dV_graduated - dE_from_V - dS_waned, 0.0, pops)
+        V_pending = np.clip(V_pending + dV_pending_in - dV_graduated, 0.0, pops)
 
         national_infected[day]       = I.sum()
         national_deaths[day]         = D.sum()
@@ -736,62 +780,51 @@ def run_phased_mc_iteration(
     return national_infected, national_deaths, national_new_infections, city_active
 
 
+def validate_phased_schedule(schedule: list) -> None:
+    """Validates a phased intervention schedule without bare asserts."""
+    valid_interventions = {"none", "rail_only", "partial", "full"}
+    if not schedule:
+        raise ValueError("Schedule cannot be empty.")
+    days_covered = []
+    for phase in schedule:
+        p = phase.dict() if hasattr(phase, "dict") else (phase.model_dump() if hasattr(phase, "model_dump") else phase)
+        if "from_day" not in p or "to_day" not in p or "intervention" not in p:
+            raise ValueError(f"Phase missing required keys (from_day, to_day, intervention): {phase}")
+        f_day = p["from_day"]
+        t_day = p["to_day"]
+        inv = p["intervention"]
+        if f_day < 1:
+            raise ValueError(f"from_day must be >= 1, got {f_day}")
+        if t_day > N_DAYS:
+            raise ValueError(f"to_day must be <= {N_DAYS}, got {t_day}")
+        if f_day > t_day:
+            raise ValueError(f"from_day ({f_day}) must be <= to_day ({t_day})")
+        if inv not in valid_interventions:
+            raise ValueError(f"intervention must be one of {sorted(valid_interventions)}, got '{inv}'")
+        days_covered.extend(range(f_day, t_day + 1))
+    if len(days_covered) != len(set(days_covered)):
+        raise ValueError("Schedule has overlapping phases — each day must appear in at most one phase.")
+
+
 def run_phased_simulation(
     scenario_id: str,
     origin_city: str,
     schedule: list,
     label: str,
     edge_cuts: list = None,
+    city_quarantines=None,
     n_iterations: int = 128,
     seed_infections: int = 500,
     k_sensitivity: float = 35.0,
     meta_edges_path: str = "backend/simulator/meta_mobility_edges.csv",
     dgca_path: str = "backend/simulator/dgca_annual_weights.csv",
-    irctc_path: str = "backend/simulator/irctc_mobility_edges.csv"
+    irctc_path: str = "backend/simulator/irctc_mobility_edges.csv",
+    vaccination=None,
+    festivals=None
 ) -> None:
-    """
-    Runs a phased intervention simulation and writes results to Supabase.
+    
+    validate_phased_schedule(schedule)
 
-    Parameters:
-        scenario_id:     same scenario UUID as the standard run
-        origin_city:     origin city string (THRISSUR alias supported)
-        schedule:        list of phase dicts with from_day/to_day/intervention
-        label:           intervention_type string written to DB (e.g. "custom_phase_1")
-                         Delete-before-insert is idempotent — safe to re-run.
-        n_iterations:    MC iterations (default 128)
-        meta_edges_path: path to meta_mobility_edges.csv
-        dgca_path:       path to dgca_annual_weights.csv
-        irctc_path:      path to irctc_mobility_edges.csv
-
-    Schedule validation:
-        - from_day >= 1, to_day <= N_DAYS
-        - intervention in {none, rail_only, partial, full}
-        - Phases must not overlap
-        - Days not covered default to 'none'
-    """
-    # ── Validate schedule ──────────────────────────────────────────────────
-    valid_interventions = {"none", "rail_only", "partial", "full"}
-    for phase in schedule:
-        assert "from_day" in phase and "to_day" in phase and "intervention" in phase, \
-            f"Phase missing required keys: {phase}"
-        assert phase["from_day"] >= 1, \
-            f"from_day must be >= 1, got {phase['from_day']}"
-        assert phase["to_day"] <= N_DAYS, \
-            f"to_day must be <= N_DAYS ({N_DAYS}), got {phase['to_day']}"
-        assert phase["from_day"] <= phase["to_day"], \
-            f"from_day must be <= to_day: {phase}"
-        assert phase["intervention"] in valid_interventions, \
-            f"intervention must be one of {valid_interventions}, got '{phase['intervention']}'"
-
-    # Check for overlapping phases
-    days_covered = []
-    for phase in schedule:
-        days_covered.extend(range(phase["from_day"], phase["to_day"] + 1))
-    assert len(days_covered) == len(set(days_covered)), \
-        "Schedule has overlapping phases — each day must appear in at most one phase"
-
-    # ── Normalize origin city ──────────────────────────────────────────────
-    # THRISSUR → Kochi alias (THRISSUR removed from CITIES in 17→15 node fix)
     CITY_ALIASES = {"THRISSUR": "Kochi"}
     origin_city = CITY_ALIASES.get(origin_city.strip().upper(), origin_city)
 
@@ -808,7 +841,6 @@ def run_phased_simulation(
     print(f"[phased] schedule: {schedule}")
     print(f"[phased] label: '{label}'")
 
-    # ── Load profile and matrices ──────────────────────────────────────────
     profile = get_latest_pathogen_profile(scenario_id)
     names, matrices = build_composite_matrix(
         meta_edges_path=meta_edges_path,
@@ -816,12 +848,14 @@ def run_phased_simulation(
         irctc_path=irctc_path
     )
 
-    # ── QMC parameter sampling (identical to run_simulation) ──────────────
     m = int(np.ceil(np.log2(n_iterations)))
     sampler = qmc.Sobol(d=4, scramble=True, seed=42)
     uniform_samples = sampler.random_base2(m=m)[:n_iterations]
 
-    def to_triang(u, low, mode, high):
+    def to_triang(u, low, mode, high, default_low=1.5, default_mode=2.25, default_high=3.0):
+        if low is None or mode is None or high is None:
+            low, mode, high = default_low, default_mode, default_high
+        low, mode, high = float(low), float(mode), float(high)
         scale = high - low
         if scale == 0:
             return np.full_like(u, low)
@@ -829,23 +863,30 @@ def run_phased_simulation(
         return triang.ppf(u, c=c, loc=low, scale=scale)
 
     r0_samples  = to_triang(uniform_samples[:, 0],
-                             profile["r0_low"], profile["r0_most_likely"], profile["r0_high"])
+                             profile.get("r0_low"), profile.get("r0_most_likely"), profile.get("r0_high"),
+                             default_low=1.5, default_mode=2.25, default_high=3.0)
     inc_samples = to_triang(uniform_samples[:, 1],
-                             profile["incubation_days_low"],
-                             profile["incubation_days_most_likely"],
-                             profile["incubation_days_high"])
+                             profile.get("incubation_days_low"),
+                             profile.get("incubation_days_most_likely"),
+                             profile.get("incubation_days_high"),
+                             default_low=2.0, default_mode=8.0, default_high=14.0)
     cfr_samples = to_triang(uniform_samples[:, 2],
-                             profile["cfr_low"], profile["cfr_most_likely"], profile["cfr_high"])
+                             profile.get("cfr_low"), profile.get("cfr_most_likely"), profile.get("cfr_high"),
+                             default_low=0.01, default_mode=0.021, default_high=0.07)
 
-    if "infectious_period_most_likely" in profile:
+    if (
+        profile.get("infectious_period_most_likely") is not None
+        and profile.get("infectious_period_low") is not None
+        and profile.get("infectious_period_high") is not None
+    ):
         inf_samples = to_triang(uniform_samples[:, 3],
                                 profile["infectious_period_low"],
                                 profile["infectious_period_most_likely"],
-                                profile["infectious_period_high"])
+                                profile["infectious_period_high"],
+                                default_low=5.0, default_mode=7.0, default_high=10.0)
     else:
         inf_samples = np.full(n_iterations, 7.0)
 
-    # ── MC loop ────────────────────────────────────────────────────────────
     print(f"[phased] Running {n_iterations} MC iterations...")
     all_infected       = np.zeros((n_iterations, N_DAYS))
     all_deaths         = np.zeros((n_iterations, N_DAYS))
@@ -862,15 +903,17 @@ def run_phased_simulation(
             r0_samples[it], inc_samples[it], cfr_samples[it], inf_samples[it],
             rng,
             edge_cuts=edge_cuts,
+            city_quarantines=city_quarantines,
             seed_infections=seed_infections,
-            k_sensitivity=k_sensitivity
+            k_sensitivity=k_sensitivity,
+            vaccination=vaccination,
+            festivals=festivals
         )
         all_infected[it]       = inf
         all_deaths[it]         = dth
         all_new_infections[it] = new_inf
         all_city_active[it]    = city_act
 
-    # ── Assemble rows ──────────────────────────────────────────────────────
     seird_rows = []
     city_rows  = []
 
@@ -903,7 +946,6 @@ def run_phased_simulation(
                 "active_cases_p90": float(np.percentile(all_city_active[:, day, ci], 90)),
             })
 
-    # ── Write to Supabase ──────────────────────────────────────────────────
     register_intervention_type(label)
     print(f"  [done] intervention_type '{label}' registered in lookup table")
 
@@ -918,3 +960,245 @@ def run_phased_simulation(
     print(f"  [done] resource_projections written for label='{label}'")
 
     print(f"[phased] Done. Results written as intervention_type='{label}'")
+
+
+# ── Fast Deterministic ODE Preview Engine (<50ms, Zero DB Writes) ──────────
+_CACHED_NAMES = None
+_CACHED_MATRICES = None
+
+def get_or_build_matrices():
+    global _CACHED_NAMES, _CACHED_MATRICES
+    if _CACHED_MATRICES is None:
+        _CACHED_NAMES, _CACHED_MATRICES = build_composite_matrix()
+    return _CACHED_NAMES, _CACHED_MATRICES
+
+
+def run_deterministic_preview(
+    origin_city: str = "DELHI",
+    n_days: int = 180,
+    seed_infections: int = 500,
+    k_sensitivity: float = 35.0,
+    r0: float = 2.5,
+    incubation_days: float = 5.0,
+    infectious_days: float = 7.0,
+    cfr: float = 0.02,
+    modal_shares: dict = None,
+    edge_cuts: list = None,
+    edge_capacities: dict = None,
+    quarantined_cities: list = None,
+    intervention: str = "none",
+    schedule: list = None,
+    vaccination: dict = None,
+    festivals: list = None
+) -> dict:
+    
+    from backend.simulator.seirv_engine import build_festival_multiplier, VaccinationParams
+
+    names, matrices = get_or_build_matrices()
+    n = len(names)
+
+    CITY_ALIASES = {
+        "THRISSUR": "Kochi",
+        "THIRUVANANTHAPURAM": "Kochi",
+        "SURAT": "Ahmedabad"
+    }
+    resolved = CITY_ALIASES.get(origin_city.strip().upper(), origin_city)
+    matched = next((c for c in names if c.strip().lower() == resolved.strip().lower()), "Delhi")
+    origin_city_name = matched
+    origin_idx = names.index(origin_city_name)
+
+    pops = np.array([CITIES[c]["pop"] for c in names], dtype=float)
+    S = pops.copy()
+    E = np.zeros(n, dtype=float)
+    I = np.zeros(n, dtype=float)
+    R = np.zeros(n, dtype=float)
+    D = np.zeros(n, dtype=float)
+    V = np.zeros(n, dtype=float)
+    V_pending = np.zeros(n, dtype=float)
+
+    seed_val = float(min(seed_infections, pops[origin_idx]))
+    I[origin_idx] = seed_val
+    S[origin_idx] -= seed_val
+
+    sigma = 1.0 / max(incubation_days, 0.1)
+    gamma = 1.0 / max(infectious_days, 0.1)
+
+    national_infected       = np.zeros(n_days)
+    national_deaths         = np.zeros(n_days)
+    national_recovered      = np.zeros(n_days)
+    national_new_infections = np.zeros(n_days)
+    national_vaccinated     = np.zeros(n_days)
+    city_active             = np.zeros((n_days, n))
+    city_deaths             = np.zeros((n_days, n))
+
+    distinct_interventions = set()
+    if schedule:
+        for phase in schedule:
+            p = phase.dict() if hasattr(phase, "dict") else (phase.model_dump() if hasattr(phase, "model_dump") else phase)
+            distinct_interventions.add(p.get("intervention", "none"))
+    else:
+        distinct_interventions.add(intervention)
+    distinct_interventions.add("none")
+
+    W_cache = {
+        inv: apply_intervention(
+            matrices, inv,
+            edge_cuts=edge_cuts,
+            city_quarantines=quarantined_cities,
+            modal_shares=modal_shares,
+            edge_capacities=edge_capacities
+        )
+        for inv in distinct_interventions
+    }
+    local_mult_cache = {
+        inv: LOCAL_TRANSMISSION_MULTIPLIER.get(inv, 1.0)
+        for inv in distinct_interventions
+    }
+
+    day_intervention = ["none"] * n_days
+    if schedule:
+        for phase in schedule:
+            p = phase.dict() if hasattr(phase, "dict") else (phase.model_dump() if hasattr(phase, "model_dump") else phase)
+            f_day = max(1, p.get("from_day", 1))
+            t_day = min(n_days, p.get("to_day", n_days))
+            inv = p.get("intervention", "none")
+            for d in range(f_day - 1, t_day):
+                day_intervention[d] = inv
+    else:
+        day_intervention = [intervention] * n_days
+
+    N_safe = np.maximum(pops, 1.0)
+
+    vax_params = VaccinationParams.from_dict(vaccination)
+    fest_list = festivals or []
+    city_idx_map = {c: i for i, c in enumerate(names)}
+
+    for day in range(n_days):
+        inv_today = day_intervention[day]
+        W = W_cache.get(inv_today, W_cache["none"])
+        local_mult = local_mult_cache.get(inv_today, 1.0)
+
+        # 1. Festival / event multiplier for today
+        fmult = build_festival_multiplier(day, fest_list, city_idx_map, n)
+
+        # 2. Inter-city import pressure via network mobility
+        import_pressure = W.T @ (I / N_safe)
+
+        # 3. Behavioral feedback & transmission rate
+        prevalence = I / N_safe
+        behavior_mult = np.exp(-k_sensitivity * prevalence)
+        effective_mult = local_mult * behavior_mult * fmult
+        beta = (r0 / max(infectious_days, 0.1)) * effective_mult
+        total_I = I + import_pressure
+        force_of_infection = beta * (total_I / N_safe)
+        force_of_infection = np.clip(force_of_infection, 0.0, 50.0)
+
+        # Leaky vaccine force of infection for V
+        force_V = (1.0 - vax_params.efficacy) * force_of_infection if vax_params.enabled else force_of_infection
+
+        p_infection = np.clip(1.0 - np.exp(-force_of_infection), 0.0, 1.0)
+        p_infection_V = np.clip(1.0 - np.exp(-force_V), 0.0, 1.0)
+
+        # 4. Outflows from S (Competing risk: infection vs vaccination)
+        dE_from_S = S * p_infection
+        dV_new = np.zeros(n)
+        if vax_params.enabled and day >= vax_params.start_day:
+            eligible = S + R
+            total_doses = vax_params.daily_rate * pops
+            dV_new = np.minimum(S, total_doses * np.where(eligible > 0, S / eligible, 0.0))
+
+        total_S_out = dE_from_S + dV_new
+        scale = np.where(total_S_out > S, S / np.maximum(total_S_out, 1e-9), 1.0)
+        dE_from_S *= scale
+        dV_new *= scale
+
+        # 5. Outflows from V (Breakthrough infection vs antibody waning)
+        dE_from_V = V * p_infection_V if vax_params.enabled else np.zeros(n)
+        omega = (1.0 / vax_params.waning_mean_days) if (vax_params.enabled and vax_params.waning_mean_days) else 0.0
+        dS_waned = omega * V
+        total_V_out = dE_from_V + dS_waned
+        scale_V = np.where((total_V_out > V) & (total_V_out > 0), V / np.maximum(total_V_out, 1e-9), 1.0)
+        dE_from_V *= scale_V
+        dS_waned *= scale_V
+
+        # 6. V_pending onset lag
+        onset_rate = 1.0 / max(vax_params.onset_days, 1)
+        dV_graduated = onset_rate * V_pending
+        dV_pending_in = dV_new
+
+        # 7. Transitions: E -> I
+        total_new_infections = dE_from_S + dE_from_V
+        new_exposed_to_infectious = np.clip(sigma * E, 0.0, E)
+
+        # 8. Transitions: I -> R / D with severity protection for breakthroughs
+        new_removed = np.clip(gamma * I, 0.0, I)
+        breakthrough_ratio = np.where(total_new_infections > 0, dE_from_V / np.maximum(total_new_infections, 1e-9), 0.0)
+        effective_cfr = cfr * (1.0 - vax_params.severity_efficacy * breakthrough_ratio)
+        new_deaths = new_removed * effective_cfr
+        new_recovered = new_removed - new_deaths
+
+        # 9. Update state with mass-conservation bounds
+        S = np.clip(S - dE_from_S - dV_new + dS_waned, 0.0, pops)
+        E = np.clip(E + total_new_infections - new_exposed_to_infectious, 0.0, pops)
+        I = np.clip(I + new_exposed_to_infectious - new_removed, 0.0, pops)
+        R = np.clip(R + new_recovered, 0.0, pops)
+        D = np.clip(D + new_deaths, 0.0, pops)
+        V = np.clip(V + dV_graduated - dE_from_V - dS_waned, 0.0, pops)
+        V_pending = np.clip(V_pending + dV_pending_in - dV_graduated, 0.0, pops)
+
+        national_infected[day]       = float(I.sum())
+        national_deaths[day]         = float(D.sum())
+        national_recovered[day]      = float(R.sum())
+        national_new_infections[day] = float(total_new_infections.sum())
+        national_vaccinated[day]     = float((V + V_pending).sum())
+        city_active[day]             = I.copy()
+        city_deaths[day]             = D.copy()
+
+    peak_idx = int(np.argmax(national_infected))
+    peak_day = peak_idx + 1
+    peak_active = float(national_infected[peak_idx])
+    total_deaths = float(national_deaths[-1])
+    total_pop = float(pops.sum())
+
+    # Extract Top 5 affected cities by peak active cases
+    top_city_indices = np.argsort(city_active.max(axis=0))[::-1][:5]
+    top_cities = []
+    for idx in top_city_indices:
+        c_name = names[idx]
+        c_curve = city_active[:, idx]
+        c_peak_day = int(np.argmax(c_curve)) + 1
+        top_cities.append({
+            "city": c_name,
+            "population": int(pops[idx]),
+            "peak_day": c_peak_day,
+            "peak_active": int(round(float(c_curve.max()))),
+            "total_deaths": int(round(float(city_deaths[-1, idx])))
+        })
+
+    return {
+        "status": "success",
+        "origin_city": origin_city_name,
+        "n_days": n_days,
+        "summary": {
+            "peak_day": peak_day,
+            "peak_active_cases": int(round(peak_active)),
+            "total_deaths": int(round(total_deaths)),
+            "attack_rate_pct": round(float((total_pop - S.sum()) / total_pop * 100), 2),
+            "final_vaccinated": int(round(national_vaccinated[-1])),
+            "final_coverage_pct": round(float(national_vaccinated[-1]) / max(total_pop, 1.0) * 100, 2)
+        },
+        "national_trajectory": {
+            "days": list(range(1, n_days + 1)),
+            "active": [int(round(x)) for x in national_infected],
+            "deaths": [int(round(x)) for x in national_deaths],
+            "recovered": [int(round(x)) for x in national_recovered],
+            "new_infections": [int(round(x)) for x in national_new_infections],
+            "vaccinated": [int(round(x)) for x in national_vaccinated]
+        },
+        "top_cities": top_cities,
+        "city_curves": {
+            names[idx].upper(): [int(round(val)) for val in city_active[:, idx]]
+            for idx in range(n)
+        }
+    }
+

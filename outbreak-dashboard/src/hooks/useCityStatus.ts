@@ -19,7 +19,11 @@ export function useCityStatus(scenarioId: string) {
   useEffect(() => {
     const handler = () => setRefetchCount(c => c + 1);
     window.addEventListener('simulation-complete', handler);
-    return () => window.removeEventListener('simulation-complete', handler);
+    window.addEventListener('simulation-data-refresh', handler);
+    return () => {
+      window.removeEventListener('simulation-complete', handler);
+      window.removeEventListener('simulation-data-refresh', handler);
+    };
   }, []);
 
   useEffect(() => {
