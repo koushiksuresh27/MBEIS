@@ -4,6 +4,7 @@ import type { ScenarioConfig } from '../types/scenario';
 import { supabase } from '../lib/supabase';
 import RippleLoader from '../components/common/RippleLoader';
 import { useVoiceAgent } from '../context/VoiceAgentContext';
+import { BACKEND_URL } from '../config/backend';
 
 const SCENARIO_ID = 'bb0ff20e-b086-411b-8054-91560b1e88ec';
 
@@ -93,7 +94,6 @@ export default function PlannerView({
     setActiveLines(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
   const PHASE_INTERVENTIONS = [
     { value: 'full', label: 'Full Quarantine' },
     { value: 'partial', label: 'Partial Lockdown' },
@@ -156,12 +156,32 @@ export default function PlannerView({
   const [showCompare, setShowCompare] = useState(false);
   const [compareGraphScale, setCompareGraphScale] = useState<'focus' | 'baseline'>('focus');
 
+  const [researchPlanToast, setResearchPlanToast] = useState<string | null>(null);
+
   useEffect(() => {
     if (initialEdgeCuts && initialEdgeCuts.length > 0) {
       setEdgeCuts(initialEdgeCuts);
       setPlanLabel('Map Cordon Plan');
     }
   }, [initialEdgeCuts]);
+
+  useEffect(() => {
+    const handleApplyResearchPlan = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const detail = customEvent.detail;
+      if (!detail) return;
+      if (detail.planName) setPlanLabel(detail.planName);
+      if (detail.phases && detail.phases.length > 0) setPhases(detail.phases);
+      if (detail.edgeCuts) setEdgeCuts(detail.edgeCuts);
+      if (detail.vaccination) setVaccination(detail.vaccination);
+
+      setResearchPlanToast(`Applied ${detail.planName} to Policy Sandbox`);
+      setTimeout(() => setResearchPlanToast(null), 4500);
+    };
+
+    window.addEventListener('apply-research-plan', handleApplyResearchPlan);
+    return () => window.removeEventListener('apply-research-plan', handleApplyResearchPlan);
+  }, []);
 
   const [ecSrc, setEcSrc] = useState('');
   const [ecTgt, setEcTgt] = useState('');
@@ -858,6 +878,25 @@ ${tableRows}
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
       <main className="flex-1 p-6 space-y-8 max-w-[1440px] mx-auto w-full overflow-y-auto">
+
+        {researchPlanToast && (
+          <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300 shadow-sm animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+              <span className="font-semibold font-sans">
+                {researchPlanToast} — Policy levers, phase dates, transit edge cordons & ring vaccination loaded.
+              </span>
+            </div>
+            <button
+              onClick={() => setResearchPlanToast(null)}
+              className="p-1 hover:bg-emerald-500/20 rounded-md text-emerald-600 dark:text-emerald-400 cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        )}
 
         {/* Phase Builder + Saved Plans — two column layout */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">

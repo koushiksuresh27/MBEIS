@@ -1,3 +1,4 @@
+// @ts-nocheck
 // supabase/functions/planner-copilot/index.ts
 //
 // Planner copilot — Supabase Edge Function (Deno/TypeScript).

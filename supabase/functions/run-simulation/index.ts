@@ -1,10 +1,17 @@
+// @ts-nocheck
+// Supabase Edge Function (Deno runtime)
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined;
+  };
+};
 
 const SIMULATOR_URL = Deno.env.get("SIMULATOR_SERVICE_URL")
   ?? "http://127.0.0.1:8000";
 
-serve(async (req) => {
+serve(async (req: Request) => {
   try {
     // 1. Parse request
     const { scenario_id, intervention_type, n_runs } = await req.json();
@@ -44,10 +51,12 @@ serve(async (req) => {
       JSON.stringify(result),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
-  } catch (e) {
+  } catch (e: any) {
+    const errorMessage = e instanceof Error ? e.message : (e?.message ?? String(e));
     return new Response(
-      JSON.stringify({ error: e.message }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 });
+

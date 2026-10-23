@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useVoiceAgent } from '../context/VoiceAgentContext';
+import ResearchDossierModal from './dossier/ResearchDossierModal';
+import type { DossierData } from '../types/dossier';
 
 interface ErisDrawerProps {
   isOpen: boolean;
@@ -15,9 +17,10 @@ export interface LedgerEntry {
   content: string;
   isPinned?: boolean;
   tag?: string;
+  dossier?: DossierData;
 }
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
+import { BACKEND_URL } from '../config/backend';
 
 const LANGUAGES = [
   { code: 'en-IN', label: 'EN', name: 'English' },
@@ -142,7 +145,84 @@ function ErisFlowchart({ spec }: { spec: any }) {
   );
 }
 
-function FormattedLedgerContent({ content }: { content: string }) {
+function ErisDossierCard({
+  dossier,
+  onOpenDossier
+}: {
+  dossier: DossierData;
+  onOpenDossier: (d: DossierData) => void;
+}) {
+  const planCount = (dossier.scorecards?.length || 1) - 1;
+  const bestPlan = dossier.scorecards?.[1];
+
+  const cleanSnippet = (dossier.executive_verdict || '')
+    .replace(/ERIS Epidemiological Intelligence Core:.*?---/s, '')
+    .replace(/###\s*[0-9.]*\s*/g, '')
+    .replace(/\*\*Scenario ID:\*\*.*?\n/g, '')
+    .replace(/\*\*Epicenter:\*\*.*?\n/g, '')
+    .replace(/[-*•]\s+/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/---+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return (
+    <div className="my-3 p-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:border-primary/50 transition-all shadow-xs">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="p-1 rounded bg-primary/15 text-primary">
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+          </span>
+          <span className="text-xs font-bold text-on-surface font-sans">
+            Autonomous Research Dossier
+          </span>
+        </div>
+        <span className="text-[9.5px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold border border-primary/25">
+          {planCount > 0 ? `${planCount} Forks Evaluated` : 'Simulation Ready'}
+        </span>
+      </div>
+
+      <p className="text-[11.5px] text-on-surface/90 font-sans leading-snug line-clamp-2 mb-2.5">
+        {cleanSnippet || 'Coupled 180-day multi-fork SEIRD simulation and clinical verdict ready for review.'}
+      </p>
+
+      {bestPlan && bestPlan.reduction_pct > 0 && (
+        <div className="flex items-center gap-3 text-[10.5px] font-mono mb-3 text-on-surface-variant bg-surface/70 p-2 rounded-lg border border-outline/20">
+          <div>
+            <span className="text-on-surface-variant/70">Peak Drop: </span>
+            <span className="text-emerald-600 font-bold">-{bestPlan.reduction_pct}%</span>
+          </div>
+          <div>
+            <span className="text-on-surface-variant/70">Lives Saved: </span>
+            <span className="text-emerald-600 font-bold">+{bestPlan.deaths_saved.toLocaleString()}</span>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onOpenDossier(dossier)}
+        className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-98"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        <span>View Full Research Dossier</span>
+      </button>
+    </div>
+  );
+}
+
+function FormattedLedgerContent({
+  content,
+  onOpenDossier,
+}: {
+  content: string;
+  onOpenDossier?: (d: DossierData) => void;
+}) {
   if (!content) return null;
 
   const rawLines = content.split('\n');
@@ -218,6 +298,20 @@ function FormattedLedgerContent({ content }: { content: string }) {
             return;
           } catch (e) {
             console.warn('Failed to parse eris-flow JSON:', e);
+          }
+        } else if (codeBlockType === 'eris-dossier') {
+          try {
+            const dossierSpec: DossierData = JSON.parse(blockText);
+            blocks.push(
+              <ErisDossierCard
+                key={blockKey}
+                dossier={dossierSpec}
+                onOpenDossier={(d) => onOpenDossier?.(d)}
+              />
+            );
+            return;
+          } catch (e) {
+            console.warn('Failed to parse eris-dossier JSON:', e);
           }
         }
 
@@ -383,6 +477,26 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
   const [autoBriefLoading, setAutoBriefLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'notes' | 'pinned'>('all');
 
+  // Autonomous Deep Research Dossier State
+  const [selectedDossier, setSelectedDossier] = useState<DossierData | null>(null);
+  const [isResearching, setIsResearching] = useState(false);
+  const [researchStatusMsg, setResearchStatusMsg] = useState<string | null>(null);
+  const [researchStage, setResearchStage] = useState<number>(1);
+  const [researchElapsedSec, setResearchElapsedSec] = useState<number>(0);
+
+  // Live timer for research exploration
+  useEffect(() => {
+    if (!isResearching) {
+      setResearchElapsedSec(0);
+      return;
+    }
+    const t0 = Date.now();
+    const interval = setInterval(() => {
+      setResearchElapsedSec(Math.floor((Date.now() - t0) / 1000));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isResearching]);
+
   // Manual Note Creation State
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [newNoteTitle, setNewNoteTitle] = useState('');
@@ -394,7 +508,7 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
   // Auto-scroll on new entries
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [notebookEntries, voiceHistory, isLoading, isCreatingNote]);
+  }, [notebookEntries, voiceHistory, isLoading, isCreatingNote, isResearching]);
 
   // Listen for autonomous findings appended by the Voice Agent
   useEffect(() => {
@@ -409,6 +523,7 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
         query: data.title || 'Spoken Finding',
         content: data.finding || '',
         isPinned: !!data.pin_to_brief,
+        dossier: data.dossier || undefined,
       };
       setNotebookEntries(prev => [newEntry, ...prev]);
     };
@@ -662,13 +777,130 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
     return () => window.removeEventListener('simulation-complete', handleSimComplete);
   }, [handleGenerateBrief]);
 
-  if (!isOpen) return null;
+  // Autonomous Deep Research Dispatch (Bedrock Engine / Groq Fallback)
+  const handleDispatchResearch = useCallback(async (customQuery?: string) => {
+    if (isResearching) return;
+    setIsResearching(true);
+    setResearchStage(1);
+    setResearchStatusMsg('Formulating candidate policy interventions via Inverse Planning...');
+
+    const promptQuery =
+      customQuery ||
+      inputValue.trim() ||
+      'Evaluate targeted transit cordons vs phased statewide restrictions vs ring vaccination over 180 days with hospital and oxygen stress';
+
+    if (!customQuery && inputValue.trim()) {
+      setInputValue('');
+    }
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/research/dispatch-mission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: promptQuery,
+          scenario_id: scenarioId || 'active_scenario',
+          origin_city: 'KOCHI',
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Dispatch failed with status ${res.status}`);
+      }
+
+      const { mission_id } = await res.json();
+
+      // Poll for completion (up to 60s)
+      const startTime = Date.now();
+      let completed = false;
+
+      while (!completed && Date.now() - startTime < 60000) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const statusRes = await fetch(`${BACKEND_URL}/api/research/mission-status/${mission_id}`);
+        if (!statusRes.ok) continue;
+
+        const statusData = await statusRes.json();
+        if (statusData.progress && statusData.progress.length > 0) {
+          const latestProgress = statusData.progress[statusData.progress.length - 1];
+          setResearchStatusMsg(latestProgress.msg || 'Simulating interventions...');
+          const stageKey = latestProgress.stage || statusData.status;
+          if (stageKey === 'inverse_planning') setResearchStage(1);
+          else if (stageKey === 'sobol_sim') setResearchStage(2);
+          else if (stageKey === 'stress_testing') setResearchStage(3);
+          else if (stageKey === 'synthesis') setResearchStage(4);
+          else if (stageKey === 'ready') setResearchStage(5);
+        }
+
+        if (statusData.status === 'ready') {
+          completed = true;
+          setResearchStage(5);
+          let dossierData: DossierData = statusData.dossier;
+          if (!dossierData && statusData.dossier_id) {
+            const dRes = await fetch(`${BACKEND_URL}/api/research/dossier/${statusData.dossier_id}`);
+            if (dRes.ok) {
+              dossierData = await dRes.json();
+            }
+          }
+
+          if (dossierData) {
+            const newEntry: LedgerEntry = {
+              id: `research-${Date.now()}`,
+              source: 'brief',
+              timestamp: Date.now(),
+              query: `Autonomous Research: ${dossierData.title || dossierData.mission_title || promptQuery}`,
+              content: `### Executive Verdict\n${dossierData.executive_verdict}\n\n→ **Strategic Directive**: ${dossierData.recommendation || 'Deploy localized containment cordons around primary transit edges.'}`,
+              isPinned: true,
+              tag: (dossierData.provenance === 'degraded_fallback' || dossierData.degraded_fallback) ? 'Research (Fallback)' : 'Deep Research',
+              dossier: dossierData,
+            };
+            setNotebookEntries(prev => [newEntry, ...prev]);
+            setSelectedDossier(dossierData);
+          }
+          break;
+        } else if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Deep research mission encountered an error.');
+        }
+      }
+
+      if (!completed) {
+        throw new Error('Research mission timed out after 60 seconds.');
+      }
+    } catch (err: any) {
+      console.error('Deep Research Dispatch Error:', err);
+      setNotebookEntries(prev => [
+        {
+          id: `research-err-${Date.now()}`,
+          source: 'notebook',
+          timestamp: Date.now(),
+          query: `Research: ${promptQuery}`,
+          content: `⚠️ **Research Mission Failed**: ${err.message || 'Unable to complete simulation runs.'}`,
+        },
+        ...prev,
+      ]);
+    } finally {
+      setIsResearching(false);
+      setResearchStatusMsg(null);
+      setResearchStage(1);
+    }
+  }, [isResearching, inputValue, scenarioId]);
+
+  // Listen for external research trigger events
+  useEffect(() => {
+    const handleTriggerResearch = (e: Event) => {
+      const data = (e as CustomEvent).detail;
+      handleDispatchResearch(data?.query);
+    };
+    window.addEventListener('eris-dispatch-research', handleTriggerResearch);
+    return () => window.removeEventListener('eris-dispatch-research', handleTriggerResearch);
+  }, [handleDispatchResearch]);
 
   return (
-    <div
-      className="fixed z-50 flex flex-col bg-surface border-l border-outline/40 shadow-2xl overflow-hidden"
-      style={{ right: '0px', top: '0px', bottom: '0px', width: '450px' }}
-    >
+    <>
+      {isOpen && (
+        <div
+          className="fixed z-50 flex flex-col bg-surface border-l border-outline/40 shadow-2xl overflow-hidden"
+          style={{ right: '0px', top: '0px', bottom: '0px', width: '450px' }}
+        >
       {/* Notebook Dossier Header */}
       <div className="flex flex-col border-b border-outline/30 bg-surface-container/40 p-4 shrink-0">
         <div className="flex items-center justify-between mb-2">
@@ -698,16 +930,33 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg hover:bg-surface-variant flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
-            title="Close Notebook"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleDispatchResearch()}
+              disabled={isResearching}
+              className="h-7.5 px-3 rounded-lg bg-indigo-500/15 border border-indigo-500/35 hover:border-indigo-500/65 text-indigo-700 dark:text-indigo-300 text-xs font-semibold flex items-center gap-1.5 shadow-xs hover:bg-indigo-500/25 transition-all cursor-pointer disabled:opacity-50"
+              title="Run Autonomous Deep Research on multi-fork interventions (180 days)"
+            >
+              <svg className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <path d="M11 8v6" />
+                <path d="M8 11h6" />
+              </svg>
+              <span>{isResearching ? 'Simulating...' : 'Research'}</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-lg hover:bg-surface-variant flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+              title="Close Notebook"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Notebook Quick Actions Toolbar */}
@@ -756,7 +1005,7 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
             </button>
           </div>
 
-          {/* Action Buttons: Brief & Export (No New Note in this row to prevent overflow) */}
+          {/* Action Buttons: Brief & Export */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={handleGenerateBrief}
@@ -795,6 +1044,65 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
           </div>
         </div>
       </div>
+
+      {isResearching && (
+        <div className="mx-3 my-2.5 p-3 rounded-xl bg-surface-container/90 border border-primary/30 shadow-md text-on-surface font-sans shrink-0 animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-outline/20">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider text-primary">
+                Autonomous Inverse Discovery Engine
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 font-mono text-[10.5px]">
+              <span className="text-on-surface-variant/70 text-[9.5px]">Elapsed:</span>
+              <span className="font-bold text-amber-500 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                00:{researchElapsedSec.toString().padStart(2, '0')}s
+              </span>
+            </div>
+          </div>
+
+          {/* 4-Stage Stepper */}
+          <div className="space-y-1.5 my-2">
+            {[
+              { num: 1, label: 'Candidate Policy Formulation', sub: 'Inverse Planning Levers' },
+              { num: 2, label: '50-Iteration Sobol QMC', sub: 'Stochastic Parameter Sampling' },
+              { num: 3, label: 'ICU & Oxygen Stress Testing', sub: '9,690 MT/day Ceiling Bound' },
+              { num: 4, label: 'Dossier Synthesis & Directive', sub: 'P10/P50/P90 Envelopes' },
+            ].map((st) => {
+              const isDone = researchStage > st.num;
+              const isCurrent = researchStage === st.num;
+              return (
+                <div key={st.num} className="flex items-center justify-between text-[10.5px]">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold transition-colors ${
+                      isDone
+                        ? 'bg-emerald-500 text-white'
+                        : isCurrent
+                        ? 'bg-primary text-white animate-pulse'
+                        : 'bg-surface-variant text-on-surface-variant'
+                    }`}>
+                      {isDone ? '✓' : st.num}
+                    </span>
+                    <span className={`font-medium ${isCurrent ? 'text-primary font-semibold' : isDone ? 'text-on-surface' : 'text-on-surface-variant/60'}`}>
+                      {st.label}
+                    </span>
+                  </div>
+                  <span className="font-mono text-[9px] text-on-surface-variant/60">
+                    {st.sub}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Current Live Status readout */}
+          <div className="mt-2 pt-1.5 border-t border-outline/15 flex items-center justify-between text-[10px] text-on-surface-variant font-mono">
+            <span className="truncate max-w-[280px] text-primary/90 font-medium">{researchStatusMsg || 'Running stochastic exploration...'}</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">50 Sobol Runs</span>
+          </div>
+        </div>
+      )}
 
       {autoBriefLoading && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-300 font-medium shrink-0">
@@ -1110,7 +1418,16 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
 
                 {/* Entry Body Finding */}
                 <div className="text-on-surface/90 font-sans text-[12px]">
-                  <FormattedLedgerContent content={entry.content} />
+                  <FormattedLedgerContent
+                    content={entry.content}
+                    onOpenDossier={(d) => setSelectedDossier(d)}
+                  />
+                  {entry.dossier && (
+                    <ErisDossierCard
+                      dossier={entry.dossier}
+                      onOpenDossier={(d) => setSelectedDossier(d)}
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -1175,5 +1492,27 @@ export default function ErisDrawer({ isOpen, onClose, scenarioId }: ErisDrawerPr
         </div>
       </div>
     </div>
+  )}
+
+  {/* Autonomous Research Dossier Modal - Full Viewport Level */}
+  <ResearchDossierModal
+    dossier={selectedDossier}
+    isOpen={!!selectedDossier}
+    onClose={() => setSelectedDossier(null)}
+    onSaveToNotebook={(dossier) => {
+      const newEntry: LedgerEntry = {
+        id: `dossier-saved-${Date.now()}`,
+        source: 'brief',
+        timestamp: Date.now(),
+        query: dossier.title,
+        content: dossier.executive_verdict,
+        isPinned: true,
+        tag: 'Research Dossier',
+        dossier: dossier,
+      };
+      setNotebookEntries(prev => [newEntry, ...prev]);
+    }}
+  />
+</>
   );
 }

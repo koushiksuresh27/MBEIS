@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ScenarioConfig } from '../types/scenario';
 import { saveNovelPathogenProfile, syncReferenceDiseaseProfile } from '../lib/pathogenProfileService';
+import { BACKEND_URL } from '../config/backend';
 
 interface SetupModalProps {
   isOpen: boolean;
@@ -269,8 +270,7 @@ export default function SetupModal({
         }
       }
 
-      const backendBase = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-      const response = await fetch(`${backendBase}/api/v1/simulate`, {
+      const response = await fetch(`${BACKEND_URL}/api/v1/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -399,7 +399,7 @@ export default function SetupModal({
 
       // 1. Call backend delete endpoint
       try {
-        await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'}/api/v1/scenarios/${scenarioId}`, {
+        await fetch(`${BACKEND_URL}/api/v1/scenarios/${scenarioId}`, {
           method: 'DELETE',
         });
       } catch (backendErr) {

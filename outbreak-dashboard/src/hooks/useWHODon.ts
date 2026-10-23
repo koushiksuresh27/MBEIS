@@ -1,5 +1,6 @@
 // hooks/useWHODon.ts
 import { useEffect, useState } from "react";
+import { BACKEND_URL } from "../config/backend";
 
 export interface WHOAlert {
   title: string;
@@ -19,7 +20,7 @@ export function useWHODon() {
 
   useEffect(() => {
     setLoading(true);
-    fetch("http://127.0.0.1:8000/api/v1/who-don")
+    fetch(`${BACKEND_URL}/api/v1/who-don`)
       .then((r) => r.json())
       .then((data) => {
         setAlerts(data.alerts || []);

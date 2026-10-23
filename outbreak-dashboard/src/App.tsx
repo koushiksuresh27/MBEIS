@@ -181,6 +181,14 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    const handleApplyPlan = () => {
+      setView('planner');
+    };
+    window.addEventListener('apply-research-plan', handleApplyPlan);
+    return () => window.removeEventListener('apply-research-plan', handleApplyPlan);
+  }, []);
+
   // Tier 2: Auto-load latest valid scenario from Supabase if none exists
   useEffect(() => {
     if (scenarioConfig?.scenarioId) return;

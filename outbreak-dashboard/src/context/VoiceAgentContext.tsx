@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import type { VoiceState, ScreenContext, VoiceConversationTurn, VoiceAgentContextType } from '../types/voice';
 import { encodeWAV, resampleTo16k } from '../lib/wavEncoder';
+import { BACKEND_URL } from '../config/backend';
 
-const BACKEND_URL = 'http://127.0.0.1:8000';
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes of silence auto-deactivates mic
 const TAB_ID = Math.random().toString(36).substring(2, 9);
 
@@ -145,11 +145,11 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
       currentAudioRef.current = null;
     }
     if (currentReplyCtxRef.current) {
-      currentReplyCtxRef.current.close().catch(() => {});
+      currentReplyCtxRef.current.close().catch(() => { });
       currentReplyCtxRef.current = null;
     }
     for (const src of audioQueueRef.current) {
-      try { src.stop(); } catch (_) {}
+      try { src.stop(); } catch (_) { }
     }
     audioQueueRef.current = [];
     nextPlayTimeRef.current = 0;
@@ -284,7 +284,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
           }
         } else if (data.type === 'aborted') {
           for (const src of audioQueueRef.current) {
-            try { src.stop(); } catch (_) {}
+            try { src.stop(); } catch (_) { }
           }
           audioQueueRef.current = [];
           nextPlayTimeRef.current = 0;
@@ -296,7 +296,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
           }
         } else if (data.type === 'turn_empty') {
           for (const src of audioQueueRef.current) {
-            try { src.stop(); } catch (_) {}
+            try { src.stop(); } catch (_) { }
           }
           audioQueueRef.current = [];
           nextPlayTimeRef.current = 0;
@@ -451,7 +451,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
           setActiveSpeaker('agent');
 
           audio.onended = () => {
-            replyCtx.close().catch(() => {});
+            replyCtx.close().catch(() => { });
             currentReplyCtxRef.current = null;
             currentAudioRef.current = null;
             setAnalyser(null);
@@ -461,7 +461,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
           };
 
           audio.onerror = () => {
-            replyCtx.close().catch(() => {});
+            replyCtx.close().catch(() => { });
             currentReplyCtxRef.current = null;
             currentAudioRef.current = null;
             setAnalyser(null);
@@ -754,7 +754,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
     if (wsRef.current) {
       try {
         wsRef.current.close();
-      } catch (_) {}
+      } catch (_) { }
       wsRef.current = null;
     }
     if (idleTimerRef.current) {
@@ -774,7 +774,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
       streamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current.close().catch(() => { });
       audioContextRef.current = null;
     }
     micAnalyserRef.current = null;
@@ -851,7 +851,7 @@ export const VoiceAgentProvider: React.FC<{ children: ReactNode }> = ({ children
             source.buffer = decoded;
             source.connect(ctx.destination);
             source.onended = () => {
-              ctx.close().catch(() => {});
+              ctx.close().catch(() => { });
               setVoiceState(prevState === 'off' ? 'off' : 'idle');
             };
             source.start(0);

@@ -1,7 +1,13 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import type { CityStatus } from '../../hooks/useCityStatus';
+import { BACKEND_URL } from '../../config/backend';
 import * as maplibregl from 'maplibre-gl';
+import { setWorkerUrl } from 'maplibre-gl';
+// @ts-ignore
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+setWorkerUrl(maplibreWorkerUrl);
 
 interface BubbleMapProps {
   cityData: Record<string, Record<string, CityStatus[]>>;
@@ -149,7 +155,6 @@ export default function BubbleMap({
   const [modalTab, setModalTab] = useState<'trajectory' | 'cities'>('trajectory');
   const [modalDay, setModalDay] = useState<number>(simulationDay);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
 
   // Invalidate baseline preview cache when origin city or intervention changes
   useEffect(() => {

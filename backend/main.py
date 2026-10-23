@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.responses import StreamingResponse
 import subprocess, json
 import datetime
+import time
 
 # Root of the project is one level up from backend/
 ROOT = Path(__file__).parent.parent
@@ -577,6 +578,176 @@ def delete_scenario(scenario_id: str):
     _PRELOADED_CONTEXT_CACHE.pop(scenario_id, None)
     _PRELOADED_VOICE_CONTEXT_CACHE.pop(scenario_id, None)
     return {"status": "ok", "deleted_scenario_id": scenario_id}
+
+
+# ── Autonomous Deep Research & Dossier System (Bedrock Tier) ────────────────
+class ResearchMissionRequest(BaseModel):
+    query: str
+    scenario_id: Optional[str] = "current_scenario"
+    origin_city: Optional[str] = "KOCHI"
+
+_ACTIVE_MISSIONS: Dict[str, Dict[str, Any]] = {}
+_DOSSIERS_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def _run_mission_background(mission_id: str, query: str, scenario_id: str, origin_city: str):
+    """Executes Bedrock research in worker thread without blocking FastAPI event loop."""
+    try:
+        try:
+            from backend.bedrock_manager import invoke_bedrock_research
+        except ImportError:
+            from bedrock_manager import invoke_bedrock_research
+
+        def on_progress(*args, **kwargs):
+            if mission_id not in _ACTIVE_MISSIONS:
+                return
+            stage = "simulating"
+            msg = "Processing..."
+            if len(args) == 1:
+                msg = str(args[0])
+            elif len(args) == 2:
+                stage, msg = str(args[0]), str(args[1])
+            elif len(args) >= 3:
+                stage = str(args[0])
+                msg = str(args[2])
+
+            stage_map = {
+                "planning": "inverse_planning",
+                "inverse_planning": "inverse_planning",
+                "sobol": "sobol_sim",
+                "sobol_sim": "sobol_sim",
+                "stress_test": "stress_testing",
+                "stress_testing": "stress_testing",
+                "synthesis": "synthesis",
+                "ready": "ready"
+            }
+            mapped_stage = stage_map.get(stage, stage)
+            _ACTIVE_MISSIONS[mission_id]["status"] = mapped_stage
+            _ACTIVE_MISSIONS[mission_id]["progress"].append({
+                "stage": mapped_stage,
+                "msg": msg,
+                "timestamp": time.time()
+            })
+
+        _ACTIVE_MISSIONS[mission_id]["status"] = "inverse_planning"
+        _ACTIVE_MISSIONS[mission_id]["progress"].append({
+            "stage": "inverse_planning",
+            "msg": "Formulating candidate policy interventions via Inverse Planning...",
+            "timestamp": time.time()
+        })
+
+        dossier = invoke_bedrock_research(
+            query=query,
+            scenario_id=scenario_id,
+            origin_city=origin_city,
+            progress_callback=on_progress
+        )
+        dossier_id = dossier["dossier_id"]
+
+        _DOSSIERS_CACHE[dossier_id] = dossier
+        _ACTIVE_MISSIONS[mission_id]["status"] = "ready"
+        _ACTIVE_MISSIONS[mission_id]["dossier_id"] = dossier_id
+        _ACTIVE_MISSIONS[mission_id]["dossier"] = dossier
+        _ACTIVE_MISSIONS[mission_id]["progress"].append({
+            "stage": "ready",
+            "msg": "Research Dossier compiled and verified.",
+            "timestamp": time.time()
+        })
+    except Exception as e:
+        print(f"[ResearchMission {mission_id}] Error: {e}", flush=True)
+        if mission_id in _ACTIVE_MISSIONS:
+            _ACTIVE_MISSIONS[mission_id]["status"] = "failed"
+            _ACTIVE_MISSIONS[mission_id]["error"] = str(e)
+            _ACTIVE_MISSIONS[mission_id]["progress"].append({
+                "stage": "failed",
+                "msg": f"Pipeline failure: {str(e)}",
+                "timestamp": time.time()
+            })
+
+
+@app.post("/api/research/dispatch-mission")
+async def dispatch_research_mission(payload: ResearchMissionRequest):
+    import uuid
+    mission_id = f"msn_{uuid.uuid4().hex[:10]}"
+    _ACTIVE_MISSIONS[mission_id] = {
+        "mission_id": mission_id,
+        "query": payload.query,
+        "scenario_id": payload.scenario_id or "current_scenario",
+        "status": "pending",
+        "created_at": time.time(),
+        "progress": [{"stage": "pending", "msg": "Mission dispatched to cognitive runtime..."}],
+        "dossier_id": None,
+        "dossier": None,
+    }
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(
+        None,
+        _run_mission_background,
+        mission_id,
+        payload.query,
+        payload.scenario_id or "current_scenario",
+        payload.origin_city or "KOCHI"
+    )
+
+    return {"status": "dispatched", "mission_id": mission_id}
+
+
+@app.get("/api/research/mission-status/{mission_id}")
+def get_mission_status(mission_id: str):
+    if mission_id not in _ACTIVE_MISSIONS:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    return _ACTIVE_MISSIONS[mission_id]
+
+
+@app.get("/api/research/dossier/{dossier_id}")
+def get_research_dossier(dossier_id: str):
+    if dossier_id not in _DOSSIERS_CACHE:
+        raise HTTPException(status_code=404, detail="Dossier not found")
+    return _DOSSIERS_CACHE[dossier_id]
+
+
+@app.post("/api/research/resimulate-forks")
+def resimulate_research_forks(payload: Optional[Dict[str, Any]] = None):
+    """
+    Instantly returns fresh, verified 180-day SEIRD deterministic forks
+    comparing Baseline, Plan A (Targeted Cordon + Ring Vax), and Plan B (Statewide Curfew).
+    """
+    from backend.simulator.bedrock_tools import execute_simulation_forks
+    origin_city = (payload.get("origin_city") if payload else None) or "KOCHI"
+    canonical_input = {
+        "origin_city": origin_city,
+        "plans": [
+            {
+                "label": "Plan A: Targeted Rail Cordon & Ring Vaccination",
+                "schedule": [
+                    {"from_day": 1, "to_day": 14, "intervention": "none"},
+                    {"from_day": 15, "to_day": 60, "intervention": "rail_only"},
+                    {"from_day": 61, "to_day": 180, "intervention": "none"}
+                ],
+                "edge_cuts": [
+                    {"src": origin_city, "tgt": "BENGALURU", "modes": ["rail", "road"]},
+                    {"src": origin_city, "tgt": "CHENNAI", "modes": ["rail", "road"]},
+                    {"src": origin_city, "tgt": "MUMBAI", "modes": ["rail", "air"]}
+                ],
+                "vaccination": {
+                    "enabled": True,
+                    "start_day": 21,
+                    "daily_rate": 0.005,
+                    "efficacy": 0.85,
+                    "severity_efficacy": 0.90
+                }
+            },
+            {
+                "label": "Plan B: Statewide Tiered Curfew",
+                "schedule": [
+                    {"from_day": 1, "to_day": 25, "intervention": "none"},
+                    {"from_day": 26, "to_day": 80, "intervention": "partial"},
+                    {"from_day": 81, "to_day": 180, "intervention": "rail_only"}
+                ]
+            }
+        ]
+    }
+    return execute_simulation_forks(canonical_input)
 
 
 

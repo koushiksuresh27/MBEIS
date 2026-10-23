@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { BACKEND_URL } from '../config/backend';
 
 interface PlaygroundDrawerProps {
   isOpen: boolean;
@@ -302,7 +303,6 @@ export default function PlaygroundDrawer({
   const [isCalculating, setIsCalculating] = useState<boolean>(false);
 
   const debounceTimerRef = useRef<any>(null);
-  const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'http://localhost:8000';
 
   const applyPreset = (preset: PolicyPreset) => {
     setSelectedPreset(preset.id);
